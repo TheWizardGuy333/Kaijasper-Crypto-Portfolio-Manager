@@ -5,6 +5,7 @@ import sqlite3
 import plotly.express as px
 import streamlit as st
 from datetime import datetime
+from dotenv import load_dotenv
 from cachetools import TTLCache
 import time
 import logging
@@ -13,20 +14,22 @@ import logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
-# Fetch API keys from environment variables or Streamlit Secrets
-CRYPTOCOMPARE_API_KEY = st.secrets.get("CRYPTOCOMPARE_API_KEY")
-LIVECOINWATCH_API_KEY = st.secrets.get("LIVECOINWATCH_API_KEY")
+# Load environment variables
+load_dotenv()
+
+CRYPTOCOMPARE_API_KEY = os.getenv("CRYPTOCOMPARE_API_KEY")
+LIVECOINWATCH_API_KEY = os.getenv("LIVECOINWATCH_API_KEY")
 
 # Notify if API keys are missing
 if not CRYPTOCOMPARE_API_KEY or not LIVECOINWATCH_API_KEY:
     st.warning("Some API keys are missing. Certain functionalities may not work.")
 
-# Token List (example tokens)
+# Token List (Including Bonfida)
 TOKENS = {
     "BONK": "bonk",
     "Dogecoin": "dogecoin",
     "Shiba Inu": "shiba-inu",
-    # Add additional tokens as needed...
+    # Add other tokens as required...
 }
 
 # Initialize SQLite database
@@ -83,7 +86,7 @@ def fetch_price(token_id):
 # Fetch price from Coingecko
 def fetch_price_coingecko(token_id):
     try:
-        url = f"https://api.coingecko.com/api/v3/simple/price?ids={token_id}&vs_currencies=usd"
+        url = f"https://api.coingecko.com/api/v3/simple/price?ids={token_id}&vs_currencies=usd&include_market_cap=true&include_24hr_change=true&include_24hr_vol=true"
         response = requests.get(url)
         if response.status_code == 429:
             logger.warning("Rate limit hit. Retrying after 2 seconds...")
@@ -163,7 +166,7 @@ def display_portfolio(c):
         fig = px.pie(df, values="Value", names="Token", title="Portfolio Allocation")
         st.plotly_chart(fig)
 
-# Manage watchlist with live prices and changes
+# Manage and display watchlist with live prices and changes
 def manage_watchlist(c, conn):
     st.subheader("Manage Watchlist")
     token_name = st.selectbox("Select Token to Add/Remove", options=list(TOKENS.keys()), key="manage_watchlist")
@@ -199,6 +202,9 @@ def manage_watchlist(c, conn):
                 else:
                     watchlist_data.append({"Token": token_name, "Price (USD)": "N/A", "24h Change (%)": "N/A"})
         df_watchlist = pd.DataFrame(watchlist_data)
+        # Safely format data
+        df_watchlist["Price (USD)"] = pd.to_numeric(df_watchlist["Price (USD)"], errors="coerce").fillna(0)
+        df_watchlist["24h Change (%)"] = pd.to_numeric(df_watchlist["24h Change (%)"], errors="coerce").fillna(0)
         st.write(df_watchlist.style.format({"Price (USD)": "${:.6f}", "24h Change (%)": "{:.2f}%"}))
     else:
         st.write("Your watchlist is empty.")
