@@ -121,7 +121,6 @@ def save_portfolio(portfolio_data):
     st.write("### Save Portfolio")
     col1, col2 = st.columns(2)
     with col1:
-        # Save as file
         if st.button("Download Portfolio"):
             st.download_button(
                 label="Download Portfolio",
@@ -130,7 +129,6 @@ def save_portfolio(portfolio_data):
                 mime="application/json"
             )
     with col2:
-        # Save to cookies
         if st.button("Save to Cookies"):
             cookies["portfolio"] = json.dumps(portfolio_data)
             cookies.save()
