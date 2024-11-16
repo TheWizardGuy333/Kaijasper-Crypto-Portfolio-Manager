@@ -26,55 +26,19 @@ if not CRYPTOCOMPARE_API_KEY or not LIVECOINWATCH_API_KEY:
 
 # Token List (Including Bonfida)
 TOKENS = {
-     "BONK": "bonk",
+    "BONK": "bonk",
     "Dogecoin": "dogecoin",
     "Shiba Inu": "shiba-inu",
     "Floki Inu": "floki-inu",
-    "Baby Doge": "baby-doge-coin",
-    "Kishu Inu": "kishu-inu",
-    "Saitama": "saitama",
-    "SafeMoon": "safemoon",
-    "EverGrow Coin": "evergrow-coin",
-    "Akita Inu": "akita-inu",
-    "Volt Inu": "volt-inu",
-    "CateCoin": "catecoin",
-    "Shiba Predator": "shiba-predator",
-    "DogeBonk": "dogebonk",
-    "Flokinomics": "flokinomics",
-    "StarLink": "starlink",
-    "Elon Musk Coin": "elon-musk-coin",
-    "DogeGF": "dogegf",
-    "Ryoshi Vision": "ryoshi-vision",
-    "Shibaverse": "shibaverse",
-    "FEG Token": "feg-token",
-    "Dogelon Mars": "dogelon-mars",
-    "BabyFloki": "babyfloki",
-    "PolyDoge": "polydoge",
-    "TAMA": "tamadoge",
-    "SpookyShiba": "spookyshiba",
-    "Moonriver": "moonriver",
-    "MetaHero": "metahero",
-    "BabyDogeZilla": "babydogezilla",
-    "NanoDogeCoin": "nanodogecoin",
-    "BabyShark": "babyshark",
-    "Wakanda Inu": "wakanda-inu",
-    "King Shiba": "king-shiba",
-    "PepeCoin": "pepecoin",
-    "Pitbull": "pitbull",
-    "MoonDoge": "moondoge",
-    "CryptoZilla": "cryptozilla",
-    "MiniDoge": "minidoge",
-    "ZillaDoge": "zilladoge",
-    "DogeFloki": "dogefloki",
-    "Bonfida": "bonfida",
-    "Rexas Finance": "rexas-finance",
     # Add other tokens as required...
 }
 
 # Initialize SQLite database
+@st.cache_resource
 def init_db():
     try:
-        conn = sqlite3.connect("portfolio.db")
+        db_path = os.path.join(os.getcwd(), "portfolio.db")
+        conn = sqlite3.connect(db_path, check_same_thread=False)  # Ensure threading compatibility
         c = conn.cursor()
         c.execute("""
             CREATE TABLE IF NOT EXISTS portfolio (
@@ -102,22 +66,18 @@ def init_db():
         conn.commit()
         return conn, c
     except sqlite3.Error as e:
+        logger.error(f"Database Initialization Error: {e}")
         st.error(f"Database Initialization Error: {e}")
         return None, None
 
 # Caching for API responses
 cache = TTLCache(maxsize=100, ttl=300)  # Cache up to 100 items for 5 minutes
 
-# Fetch price with rate limiting and fallback mechanisms
+# Fetch price with fallback mechanisms
 def fetch_price(token_id):
     if token_id in cache:
         return cache[token_id]
-    
-    price = fetch_price_coingecko(token_id)
-    if price is None:
-        price = fetch_price_cryptocompare(token_id)
-    if price is None:
-        price = fetch_price_livecoinwatch(token_id)
+    price = fetch_price_coingecko(token_id) or fetch_price_cryptocompare(token_id) or fetch_price_livecoinwatch(token_id)
     if price:
         cache[token_id] = price
     return price
@@ -127,10 +87,6 @@ def fetch_price_coingecko(token_id):
     try:
         url = f"https://api.coingecko.com/api/v3/simple/price?ids={token_id}&vs_currencies=usd&include_market_cap=true&include_24hr_change=true&include_24hr_vol=true"
         response = requests.get(url)
-        if response.status_code == 429:
-            logger.warning("Rate limit hit. Retrying after 2 seconds...")
-            time.sleep(2)
-            response = requests.get(url)
         response.raise_for_status()
         data = response.json().get(token_id, {})
         return {
@@ -188,69 +144,69 @@ def add_token(c, conn, token, quantity, price):
         conn.commit()
     except sqlite3.Error as e:
         st.error(f"Database Error: {e}")
+        logger.error(f"Database Error: {e}")
 
 # Display portfolio
 def display_portfolio(c):
-    c.execute("SELECT * FROM portfolio")
-    data = c.fetchall()
-    if not data:
-        st.write("Your portfolio is empty!")
-        return
-    df = pd.DataFrame(data, columns=["Token", "Quantity", "Value"])
-    total_value = df["Value"].sum()
-    st.write("### Your Portfolio")
-    st.write(df)
-    st.write(f"**Total Portfolio Value:** ${total_value:,.2f}")
-    if st.checkbox("Show Portfolio Allocation Chart", key="portfolio_chart"):
-        fig = px.pie(df, values="Value", names="Token", title="Portfolio Allocation")
-        st.plotly_chart(fig)
+    try:
+        c.execute("SELECT * FROM portfolio")
+        data = c.fetchall()
+        if not data:
+            st.write("Your portfolio is empty!")
+            return
+        df = pd.DataFrame(data, columns=["Token", "Quantity", "Value"])
+        total_value = df["Value"].sum()
+        st.write("### Your Portfolio")
+        st.write(df)
+        st.write(f"**Total Portfolio Value:** ${total_value:,.2f}")
+        if st.checkbox("Show Portfolio Allocation Chart", key="portfolio_chart"):
+            fig = px.pie(df, values="Value", names="Token", title="Portfolio Allocation")
+            st.plotly_chart(fig)
+    except sqlite3.Error as e:
+        st.error(f"Error displaying portfolio: {e}")
+        logger.error(f"Error displaying portfolio: {e}")
 
-# Manage and display watchlist with live prices and changes
+# Manage and display watchlist
 def manage_watchlist(c, conn):
-    st.subheader("Manage Watchlist")
-    token_name = st.selectbox("Select Token to Add/Remove", options=list(TOKENS.keys()), key="manage_watchlist")
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("Add to Watchlist", key="add_watchlist"):
-            c.execute("SELECT token FROM watchlist WHERE token = ?", (token_name,))
-            if c.fetchone():
-                st.warning(f"{token_name} is already in your watchlist.")
-            else:
-                c.execute("INSERT INTO watchlist (token) VALUES (?)", (token_name,))
-                conn.commit()
-                st.success(f"{token_name} added to your watchlist.")
-    with col2:
-        if st.button("Remove from Watchlist", key="remove_watchlist"):
-            c.execute("DELETE FROM watchlist WHERE token = ?", (token_name,))
-            conn.commit()
-            st.success(f"{token_name} removed from your watchlist.")
-    st.write("### Your Watchlist")
-    c.execute("SELECT token FROM watchlist")
-    tokens = c.fetchall()
-    if tokens:
-        watchlist_data = []
-        for token in tokens:
-            token_name = token[0]
-            token_id = TOKENS.get(token_name)
-            if token_id:
-                price_info = fetch_price(token_id)
-                if price_info:
-                    price = price_info.get("price", "N/A")
-                    change_24h = price_info.get("change_24h", "N/A")
-                    watchlist_data.append({"Token": token_name, "Price (USD)": price, "24h Change (%)": change_24h})
+    try:
+        st.subheader("Manage Watchlist")
+        token_name = st.selectbox("Select Token to Add/Remove", options=list(TOKENS.keys()), key="manage_watchlist")
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("Add to Watchlist", key="add_watchlist"):
+                c.execute("SELECT token FROM watchlist WHERE token = ?", (token_name,))
+                if c.fetchone():
+                    st.warning(f"{token_name} is already in your watchlist.")
                 else:
-                    watchlist_data.append({"Token": token_name, "Price (USD)": "N/A", "24h Change (%)": "N/A"})
-        df_watchlist = pd.DataFrame(watchlist_data)
-        # Safely format data
-        df_watchlist["Price (USD)"] = pd.to_numeric(df_watchlist["Price (USD)"], errors="coerce").fillna(0)
-        df_watchlist["24h Change (%)"] = pd.to_numeric(df_watchlist["24h Change (%)"], errors="coerce").fillna(0)
-        st.write(df_watchlist.style.format({"Price (USD)": "${:.6f}", "24h Change (%)": "{:.2f}%"}))
-    else:
-        st.write("Your watchlist is empty.")
-    if st.button("Clear Watchlist", key="clear_watchlist"):
-        c.execute("DELETE FROM watchlist")
-        conn.commit()
-        st.success("Watchlist cleared.")
+                    c.execute("INSERT INTO watchlist (token) VALUES (?)", (token_name,))
+                    conn.commit()
+                    st.success(f"{token_name} added to your watchlist.")
+        with col2:
+            if st.button("Remove from Watchlist", key="remove_watchlist"):
+                c.execute("DELETE FROM watchlist WHERE token = ?", (token_name,))
+                conn.commit()
+                st.success(f"{token_name} removed from your watchlist.")
+        st.write("### Your Watchlist")
+        c.execute("SELECT token FROM watchlist")
+        tokens = c.fetchall()
+        if tokens:
+            watchlist_data = []
+            for token in tokens:
+                token_name = token[0]
+                token_id = TOKENS.get(token_name)
+                if token_id:
+                    price_info = fetch_price(token_id)
+                    if price_info:
+                        price = price_info.get("price", "N/A")
+                        change_24h = price_info.get("change_24h", "N/A")
+                        watchlist_data.append({"Token": token_name, "Price (USD)": price, "24h Change (%)": change_24h})
+            df_watchlist = pd.DataFrame(watchlist_data)
+            st.write(df_watchlist.style.format({"Price (USD)": "${:.6f}", "24h Change (%)": "{:.2f}%"}))
+        else:
+            st.write("Your watchlist is empty.")
+    except sqlite3.Error as e:
+        st.error(f"Error managing watchlist: {e}")
+        logger.error(f"Error managing watchlist: {e}")
 
 # Main app
 def main():
@@ -259,22 +215,7 @@ def main():
     if conn and c:
         st.subheader("Portfolio Management")
         display_portfolio(c)
-        st.subheader("Manage Watchlist")
         manage_watchlist(c, conn)
-        st.subheader("Add a Token to Your Portfolio")
-        token_name = st.selectbox("Select Token", options=list(TOKENS.keys()), key="add_token_portfolio")
-        quantity = st.number_input("Enter Quantity Owned", min_value=0.0, step=0.01, key="token_quantity")
-        if st.button("Add Token", key="add_token"):
-            token_id = TOKENS.get(token_name)
-            if not token_id:
-                st.error("Invalid token selection.")
-                return
-            price_info = fetch_price(token_id)
-            if price_info and price_info.get("price"):
-                add_token(c, conn, token_name, quantity, price_info["price"])
-                st.success(f"Added {quantity} of {token_name} at ${price_info['price']:.6f} each.")
-            else:
-                st.error("Failed to fetch the price. Please try again.")
 
 if __name__ == "__main__":
     main()
