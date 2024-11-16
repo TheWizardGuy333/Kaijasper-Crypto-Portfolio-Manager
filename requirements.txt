@@ -3,7 +3,6 @@ pandas
 requests
 plotly
 python-dotenv
-streamlit-cookies-manager==0.1.6
-qrcode[pil]
+streamlit-cookies-manager==0.2.0
 Pillow
 python-dotenv
