@@ -50,8 +50,16 @@ def fetch_live_data(token):
     }
     response = requests.get(url, headers=headers)
     if response.status_code == 200:
-        return response.json()
-    return None
+        data = response.json()
+        # Check if 'USD' is in the response data
+        if 'USD' in data:
+            return data
+        else:
+            st.error(f"USD data not found for {token}.")
+            return None
+    else:
+        st.error(f"Failed to fetch live data for {token}. HTTP Status: {response.status_code}")
+        return None
 
 # Function to fetch historical data for a token
 def fetch_historical_prices(token):
