@@ -1,3 +1,5 @@
-git add requirements.txt
-git commit -m "Add requirements.txt for dependencies"
-git push
+streamlit
+pandas
+requests
+plotly
+python-dotenv
