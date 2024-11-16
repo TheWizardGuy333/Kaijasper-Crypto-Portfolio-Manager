@@ -7,4 +7,9 @@ Pillow
 scikit-learn
 scipy
 requests
-
+altair
+cachetools
+click
+pytz
+tenacity
+pyarrow
