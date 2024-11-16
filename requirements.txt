@@ -6,3 +6,7 @@ python-dotenv
 streamlit-cookies-manager==0.2.0
 Pillow
 python-dotenv
+PIL
+sqlite3
+qrcode
+io
