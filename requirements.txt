@@ -4,3 +4,6 @@ requests
 plotly
 python-dotenv
 streamlit-cookies-manager
+qrcode[pil]
+Pillow
+python-dotenv
