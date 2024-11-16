@@ -1,3 +1,29 @@
+.env(file)
+CRYPTOCOMPARE_API_KEY=e196fc622d38f6be3ab2e6474eea532e9187d2b7>
+LIVECOINWATCH_API_KEY=5dfb79d6-82ba-4e2e-98db-4413a147327a
+COOKIES_PASSWORD=Kaijasper723Avcvk64
+
+requirements.txt(file)
+
+streamlit
+pandas
+numpy
+matplotlib
+plotly
+Pillow
+scikit-learn
+scipy
+requests
+altair
+cachetools
+click
+pytz
+tenacity
+pyarrow
+
+
+app.py(file)
+
 import os
 import pandas as pd
 import requests
@@ -7,51 +33,24 @@ import streamlit as st
 from datetime import datetime
 from dotenv import load_dotenv
 from streamlit_cookies_manager import EncryptedCookieManager
+import json
+from PIL import Image
+import qrcode
 
-# Load environment variables and Streamlit secrets
+# Load environment variables
 load_dotenv()
-CRYPTOCOMPARE_API_KEY = st.secrets.get("CRYPTOCOMPARE_API_KEY") or os.getenv("CRYPTOCOMPARE_API_KEY")
-LIVECOINWATCH_API_KEY = st.secrets.get("LIVECOINWATCH_API_KEY") or os.getenv("LIVECOINWATCH_API_KEY")
 
-# Notify if API keys are missing
-if not CRYPTOCOMPARE_API_KEY:
-    st.warning("Missing CryptoCompare API Key. Some functionalities may not work.")
-if not LIVECOINWATCH_API_KEY:
-    st.warning("Missing LiveCoinWatch API Key. Some functionalities may not work.")
+CRYPTOCOMPARE_API_KEY = os.getenv("CRYPTOCOMPARE_API_KEY")
+LIVECOINWATCH_API_KEY = os.getenv("LIVECOINWATCH_API_KEY")
 
-# Initialize encrypted cookie manager
-cookies = EncryptedCookieManager(prefix="crypto_app_")
+# Initialize cookies
+cookies = EncryptedCookieManager(prefix="crypto_app")
 if not cookies.ready():
     st.stop()
 
-# Password-protected access
-def authenticate_user():
-    password = cookies.get("user_password")
-    if not password:
-        st.warning("Please set up a password for access.")
-        input_password = st.text_input("Enter a new password", type="password")
-        confirm_password = st.text_input("Confirm your password", type="password")
-        if st.button("Save Password"):
-            if input_password == confirm_password:
-                cookies["user_password"] = input_password
-                st.success("Password set successfully. Refresh the page to continue.")
-                st.experimental_rerun()
-            else:
-                st.error("Passwords do not match.")
-    else:
-        input_password = st.text_input("Enter your password", type="password")
-        if st.button("Login"):
-            if input_password == password:
-                st.success("Authentication successful!")
-            else:
-                st.error("Incorrect password. Please try again.")
-                st.stop()
-
-authenticate_user()
-
-# Token List (Including Bonfida)
+# Token List (Your Tokens Included)
 TOKENS = {
-     "BONK": "bonk",
+    "BONK": "bonk",
     "Dogecoin": "dogecoin",
     "Shiba Inu": "shiba-inu",
     "Floki Inu": "floki-inu",
@@ -92,7 +91,6 @@ TOKENS = {
     "ZillaDoge": "zilladoge",
     "DogeFloki": "dogefloki",
     "Bonfida": "bonfida"
-    # Add your token list as in the original code...
 }
 
 # Initialize SQLite database
@@ -108,17 +106,6 @@ def init_db():
             )
         """)
         c.execute("""
-            CREATE TABLE IF NOT EXISTS transactions (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                token TEXT,
-                date TEXT,
-                type TEXT,
-                quantity REAL,
-                price REAL,
-                total_value REAL
-            )
-        """)
-        c.execute("""
             CREATE TABLE IF NOT EXISTS watchlist (
                 token TEXT PRIMARY KEY
             )
@@ -128,31 +115,110 @@ def init_db():
         st.error(f"Database Error: {e}")
     return conn, c
 
-# Fetch price functions...
-# (Use the functions from the original code)
+# Fetch token price (Dummy for simplicity, replace with API logic)
+def fetch_price(token_id):
+    return {"price": 1.23}  # Replace with real API logic
 
-# Main application logic
+# Display Portfolio
+def display_portfolio(c):
+    c.execute("SELECT * FROM portfolio")
+    data = c.fetchall()
+    if not data:
+        st.write("Your portfolio is empty!")
+        return
+    df = pd.DataFrame(data, columns=["Token", "Quantity", "Value"])
+    st.write("### Your Portfolio")
+    st.write(df)
+
+# Manage Watchlist
+def manage_watchlist(c, conn):
+    st.write("### Manage Watchlist")
+    token = st.selectbox("Add/Remove Token", list(TOKENS.keys()))
+    if st.button("Add to Watchlist"):
+        c.execute("INSERT OR IGNORE INTO watchlist (token) VALUES (?)", (token,))
+        conn.commit()
+        st.success(f"{token} added to watchlist!")
+    st.write("Your Watchlist:")
+    c.execute("SELECT token FROM watchlist")
+    st.write(c.fetchall())
+
+# Save Portfolio
+def save_portfolio(portfolio_data):
+    st.write("### Save Portfolio")
+    col1, col2 = st.columns(2)
+    with col1:
+        # Save as file
+        if st.button("Download Portfolio"):
+            st.download_button(
+                label="Download Portfolio",
+                data=json.dumps(portfolio_data),
+                file_name="portfolio.json",
+                mime="application/json"
+            )
+    with col2:
+        # Save to cookies
+        if st.button("Save to Cookies"):
+            cookies["portfolio"] = json.dumps(portfolio_data)
+            cookies.save()
+            st.success("Portfolio saved to cookies!")
+
+# Load Portfolio
+def load_portfolio():
+    st.write("### Load Portfolio")
+    col1, col2 = st.columns(2)
+    portfolio = None
+    with col1:
+        uploaded_file = st.file_uploader("Upload Portfolio File", type="json")
+        if uploaded_file:
+            portfolio = json.load(uploaded_file)
+            st.write("Portfolio Loaded from File:", portfolio)
+    with col2:
+        if st.button("Load from Cookies"):
+            if "portfolio" in cookies:
+                portfolio = json.loads(cookies["portfolio"])
+                st.write("Portfolio Loaded from Cookies:", portfolio)
+            else:
+                st.error("No portfolio found in cookies!")
+    return portfolio
+
+# Generate QR Code
+def save_as_qr(portfolio_data):
+    st.write("### Save as QR Code")
+    if st.button("Generate QR Code"):
+        qr = qrcode.make(json.dumps(portfolio_data))
+        st.image(qr, caption="Scan to Load Portfolio")
+
+# Load from QR Code
+def load_from_qr():
+    st.write("### Load from QR Code")
+    uploaded_qr = st.file_uploader("Upload QR Code (PNG/JPG)", type=["png", "jpg"])
+    if uploaded_qr:
+        qr_image = Image.open(uploaded_qr)
+        # Simulated decoding
+        decoded_data = '{"token": "BTC", "quantity": 2, "value": 60000}'
+        st.write("Decoded Portfolio:", json.loads(decoded_data))
+
+# Main App
 def main():
     st.title("🚀 Enhanced Crypto Portfolio Manager 🚀")
     conn, c = init_db()
-    st.subheader("Portfolio Management")
+
+    # Portfolio Section
+    st.subheader("Portfolio")
     display_portfolio(c)
-    st.subheader("Manage Watchlist")
+
+    # Save/Load Portfolio Options
+    portfolio_data = [{"token": "BTC", "quantity": 2, "value": 60000}]
+    save_portfolio(portfolio_data)
+    portfolio = load_portfolio()
+
+    # QR Code Options
+    save_as_qr(portfolio_data)
+    load_from_qr()
+
+    # Watchlist Section
+    st.subheader("Watchlist")
     manage_watchlist(c, conn)
-    st.subheader("Add a Token to Your Portfolio")
-    token_name = st.selectbox("Select Token", options=list(TOKENS.keys()), key="add_token_portfolio")
-    quantity = st.number_input("Enter Quantity Owned", min_value=0.0, step=0.01, key="token_quantity")
-    if st.button("Add Token", key="add_token"):
-        token_id = TOKENS.get(token_name)
-        if not token_id:
-            st.error("Invalid token selection.")
-            return
-        price_info = fetch_price(token_id)
-        if price_info and price_info.get("price"):
-            add_token(c, conn, token_name, quantity, price_info["price"])
-            st.success(f"Added {quantity} of {token_name} at ${price_info['price']:.6f} each.")
-        else:
-            st.error("Failed to fetch the price. Please try again.")
 
 if __name__ == "__main__":
     main()
