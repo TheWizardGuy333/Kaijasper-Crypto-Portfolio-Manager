@@ -29,11 +29,17 @@ cookies = EncryptedCookieManager(prefix="crypto_app", password=COOKIES_PASSWORD)
 if not cookies.ready():
     st.stop()
 
-# Token List (Your Tokens Included)
+# Default Tokens (you can add more tokens here initially)
 TOKENS = {
     "BONK": "bonk",
     "Dogecoin": "dogecoin",
     "Shiba Inu": "shiba-inu",
+    "Bitcoin": "bitcoin",
+    "Ethereum": "ethereum",
+    "Litecoin": "litecoin",
+    "Ripple": "ripple",
+    "Solana": "solana",
+    "Polkadot": "polkadot"
 }
 
 # Function to fetch live data from CryptoCompare API
@@ -85,6 +91,10 @@ def fetch_token_details(token):
         return token_details if token_details else f"Details for {token} not found"
     return None
 
+# Function to manage token list (Add custom tokens)
+def add_custom_token(token_name, token_symbol):
+    TOKENS[token_name] = token_symbol
+
 # Main Function to run the Streamlit app
 def main():
     # Render the landing page
@@ -97,19 +107,35 @@ def main():
     else:
         st.error("Cookies are not ready. Please check the cookie configuration.")
     
-    # Provide the option for the user to interact with the app
+    # Sidebar Navigation
     st.sidebar.title("Sidebar Navigation")
     st.sidebar.write("Use the sidebar to explore different features!")
 
-    # Add a feature to display live data from APIs (CryptoCompare and LiveCoinWatch)
-    if st.button('Show live data'):
-        token_data = fetch_live_data("dogecoin")
-        if token_data:
-            st.write(token_data)
-        else:
-            st.error("Failed to fetch live data!")
+    # Add a feature to add custom tokens
+    st.sidebar.subheader("Add Custom Token")
+    custom_token_name = st.sidebar.text_input("Token Name (e.g., Bitcoin)")
+    custom_token_symbol = st.sidebar.text_input("Token Symbol (e.g., BTC)")
 
-    # Example of displaying the portfolio (you can expand this with real data)
+    if st.sidebar.button("Add Custom Token"):
+        if custom_token_name and custom_token_symbol:
+            add_custom_token(custom_token_name, custom_token_symbol)
+            st.sidebar.success(f"Token {custom_token_name} added successfully!")
+        else:
+            st.sidebar.error("Please fill in both fields to add a custom token.")
+
+    # Allow the user to select a token to display its data
+    token_choice = st.selectbox("Select a Token to View", list(TOKENS.keys()))
+
+    # Fetch and display live data for selected token
+    st.subheader(f"Live Data for {token_choice}")
+    token_symbol = TOKENS[token_choice]
+    token_data = fetch_live_data(token_symbol)
+    if token_data:
+        st.write(f"{token_choice} Price (USD): ${token_data['USD']}")
+    else:
+        st.error(f"Failed to fetch live data for {token_choice}!")
+
+    # Show the portfolio of tokens (You can update with your portfolio data)
     st.subheader("Your Portfolio")
     portfolio = {
         "Bitcoin": 0.5,
@@ -120,34 +146,29 @@ def main():
     portfolio_df = pd.DataFrame(portfolio.items(), columns=["Token", "Amount"])
     st.write(portfolio_df)
 
-    # Add functionality to display historical prices or a chart
+    # Show historical prices of the selected token
     st.subheader("Crypto Price History")
     if st.button('Show Historical Data'):
-        historical_prices = fetch_historical_prices("dogecoin")
+        historical_prices = fetch_historical_prices(token_symbol)
         if historical_prices:
             df = pd.DataFrame(historical_prices, columns=["ID", "Token", "Price", "Timestamp"])
             df["Timestamp"] = pd.to_datetime(df["Timestamp"], unit='s')
-            fig = px.line(df, x="Timestamp", y="Price", title="Dogecoin Price Over Time")
+            fig = px.line(df, x="Timestamp", y="Price", title=f"{token_choice} Price Over Time")
             st.plotly_chart(fig)
 
-    # Option to show portfolio chart
+    # Show portfolio distribution as a pie chart
     if st.button('Show Portfolio Chart'):
         fig = px.pie(portfolio_df, names='Token', values='Amount', title='Portfolio Distribution')
         st.plotly_chart(fig)
 
-    # Show an image or QR Code
+    # Show QR Code generation feature
     if st.button('Generate QR Code'):
         img = generate_qr_code("https://www.cryptotracker.com")
         st.image(img, caption="Your Portfolio QR Code")
 
-    # If there is an error in any function, it will stop execution and display an error message.
-    if not CRYPTOCOMPARE_API_KEY or not LIVECOINWATCH_API_KEY:
-        st.error("API Keys not configured. Please check your environment variables.")
-        st.stop()
-    
-    # Example of fetching token details and displaying them in the app
+    # Show token details if available
     if st.button("Show Token Details"):
-        token_info = fetch_token_details("dogecoin")
+        token_info = fetch_token_details(token_symbol)
         if token_info:
             st.write(token_info)
         else:
