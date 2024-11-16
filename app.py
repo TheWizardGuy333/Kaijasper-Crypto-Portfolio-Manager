@@ -1,7 +1,6 @@
 import os
 import pandas as pd
 import requests
-import sqlite3
 import plotly.express as px
 import streamlit as st
 from datetime import datetime
@@ -48,17 +47,17 @@ def fetch_live_data(token):
     headers = {
         "Authorization": f"Apikey {CRYPTOCOMPARE_API_KEY}"
     }
-    response = requests.get(url, headers=headers)
-    if response.status_code == 200:
+    try:
+        response = requests.get(url, headers=headers)
+        response.raise_for_status()  # Raise an error if the request was unsuccessful
         data = response.json()
-        # Check if 'USD' is in the response data
         if 'USD' in data:
             return data
         else:
             st.error(f"USD data not found for {token}.")
             return None
-    else:
-        st.error(f"Failed to fetch live data for {token}. HTTP Status: {response.status_code}")
+    except requests.exceptions.RequestException as e:
+        st.error(f"Failed to fetch live data for {token}: {e}")
         return None
 
 # Function to fetch historical data for a token
@@ -67,11 +66,14 @@ def fetch_historical_prices(token):
     headers = {
         "Authorization": f"Apikey {CRYPTOCOMPARE_API_KEY}"
     }
-    response = requests.get(url, headers=headers)
-    if response.status_code == 200:
+    try:
+        response = requests.get(url, headers=headers)
+        response.raise_for_status()
         data = response.json()["Data"]["Data"]
         return [(entry['time'], token, entry['close'], entry['time']) for entry in data]
-    return None
+    except requests.exceptions.RequestException as e:
+        st.error(f"Failed to fetch historical data for {token}: {e}")
+        return None
 
 # Function to generate a QR code
 def generate_qr_code(data):
@@ -92,12 +94,15 @@ def fetch_token_details(token):
     headers = {
         "Authorization": f"Apikey {CRYPTOCOMPARE_API_KEY}"
     }
-    response = requests.get(url, headers=headers)
-    if response.status_code == 200:
+    try:
+        response = requests.get(url, headers=headers)
+        response.raise_for_status()
         tokens = response.json()["Data"]
         token_details = tokens.get(token.upper())
         return token_details if token_details else f"Details for {token} not found"
-    return None
+    except requests.exceptions.RequestException as e:
+        st.error(f"Failed to fetch token details for {token}: {e}")
+        return None
 
 # Function to manage token list (Add custom tokens)
 def add_custom_token(token_name, token_symbol):
@@ -137,11 +142,14 @@ def main():
     # Fetch and display live data for selected token
     st.subheader(f"Live Data for {token_choice}")
     token_symbol = TOKENS[token_choice]
-    token_data = fetch_live_data(token_symbol)
-    if token_data:
-        st.write(f"{token_choice} Price (USD): ${token_data['USD']}")
-    else:
-        st.error(f"Failed to fetch live data for {token_choice}!")
+    
+    # Add a loading spinner while fetching data
+    with st.spinner(f"Fetching data for {token_choice}..."):
+        token_data = fetch_live_data(token_symbol)
+        if token_data:
+            st.write(f"{token_choice} Price (USD): ${token_data['USD']}")
+        else:
+            st.error(f"Failed to fetch live data for {token_choice}!")
 
     # Show the portfolio of tokens (You can update with your portfolio data)
     st.subheader("Your Portfolio")
@@ -157,12 +165,13 @@ def main():
     # Show historical prices of the selected token
     st.subheader("Crypto Price History")
     if st.button('Show Historical Data'):
-        historical_prices = fetch_historical_prices(token_symbol)
-        if historical_prices:
-            df = pd.DataFrame(historical_prices, columns=["ID", "Token", "Price", "Timestamp"])
-            df["Timestamp"] = pd.to_datetime(df["Timestamp"], unit='s')
-            fig = px.line(df, x="Timestamp", y="Price", title=f"{token_choice} Price Over Time")
-            st.plotly_chart(fig)
+        with st.spinner(f"Fetching historical data for {token_choice}..."):
+            historical_prices = fetch_historical_prices(token_symbol)
+            if historical_prices:
+                df = pd.DataFrame(historical_prices, columns=["ID", "Token", "Price", "Timestamp"])
+                df["Timestamp"] = pd.to_datetime(df["Timestamp"], unit='s')
+                fig = px.line(df, x="Timestamp", y="Price", title=f"{token_choice} Price Over Time")
+                st.plotly_chart(fig)
 
     # Show portfolio distribution as a pie chart
     if st.button('Show Portfolio Chart'):
@@ -176,11 +185,12 @@ def main():
 
     # Show token details if available
     if st.button("Show Token Details"):
-        token_info = fetch_token_details(token_symbol)
-        if token_info:
-            st.write(token_info)
-        else:
-            st.error("Failed to fetch token details.")
+        with st.spinner(f"Fetching details for {token_choice}..."):
+            token_info = fetch_token_details(token_symbol)
+            if token_info:
+                st.write(token_info)
+            else:
+                st.error("Failed to fetch token details.")
     
     # Displaying a QR Code for any URL (demo)
     if st.button("Generate QR for URL"):
