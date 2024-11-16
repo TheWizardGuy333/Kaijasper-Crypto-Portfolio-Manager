@@ -2,7 +2,7 @@ streamlit
 pandas
 numpy
 matplotlib
-plotly==5.0.0
+plotly
 Pillow
 scikit-learn
 scipy
