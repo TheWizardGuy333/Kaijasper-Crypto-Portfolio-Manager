@@ -215,7 +215,7 @@ def manage_watchlist(c, conn):
 
 # Main app
 def main():
-    st.title("🚀 Enhanced Crypto Portfolio Manager 🚀")
+    st.title("🚀 Kaijasper Crypto Portfolio Manager 🚀")
     conn, c = init_db()
     if conn and c:
         st.subheader("Portfolio Management")
