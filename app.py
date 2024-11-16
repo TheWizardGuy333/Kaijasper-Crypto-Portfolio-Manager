@@ -10,6 +10,7 @@ from streamlit_cookies_manager import EncryptedCookieManager
 import json
 from PIL import Image
 import qrcode
+import io  # Import io module for working with byte streams
 
 # Load environment variables
 load_dotenv()
@@ -163,8 +164,16 @@ def load_portfolio():
 def save_as_qr(portfolio_data):
     st.write("### Save as QR Code")
     if st.button("Generate QR Code"):
+        # Generate QR Code as a PIL Image
         qr = qrcode.make(json.dumps(portfolio_data))
-        st.image(qr, caption="Scan to Load Portfolio")
+        
+        # Save QR code to a BytesIO object
+        img_byte_arr = io.BytesIO()
+        qr.save(img_byte_arr)
+        img_byte_arr.seek(0)  # Go to the start of the BytesIO stream
+
+        # Display the QR code as an image
+        st.image(img_byte_arr, caption="Scan to Load Portfolio")
 
 # Load from QR Code
 def load_from_qr():
