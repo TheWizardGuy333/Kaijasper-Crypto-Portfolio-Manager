@@ -201,8 +201,8 @@ def manage_watchlist(c, conn):
             if token_id:
                 price_info = fetch_price(token_id)
                 if price_info:
-                    price = price_info["price"]
-                    change_24h = price_info["change_24h"]
+                    price = price_info.get("price", "N/A")
+                    change_24h = price_info.get("change_24h", "N/A")  # Safely fetch the value
                     watchlist_data.append({"Token": token_name, "Price (USD)": price, "24h Change (%)": change_24h})
                 else:
                     watchlist_data.append({"Token": token_name, "Price (USD)": "N/A", "24h Change (%)": "N/A"})
@@ -237,7 +237,7 @@ def main():
     quantity = st.number_input("Enter Quantity Owned", min_value=0.0, step=0.01)
     if st.button("Add Token"):
         price_info = fetch_price(TOKENS[token_name])
-        if price_info and price_info["price"]:
+        if price_info and price_info.get("price"):
             add_token(c, conn, token_name, quantity, price_info["price"])
             st.success(f"Added {quantity} of {token_name} at ${price_info['price']:.6f} each.")
         else:
