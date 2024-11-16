@@ -11,13 +11,6 @@ import time
 import logging
 import plotly
 
-# Try importing plotly and handle missing module
-try:
-    import plotly.express as px
-except ModuleNotFoundError:
-    st.error("The `plotly` library is not installed. Please install it by running `pip install plotly`.")
-    sys.exit("Error: Missing required library `plotly`")
-
 # Setup logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
