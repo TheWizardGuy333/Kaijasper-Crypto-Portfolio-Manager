@@ -13,3 +13,6 @@ click
 pytz
 tenacity
 pyarrow
+qrcode[pil]
+streamlit-cookies-manager
+python-dotenv
