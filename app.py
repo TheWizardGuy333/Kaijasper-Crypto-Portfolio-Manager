@@ -1,210 +1,248 @@
-import os
+mport os 
 import pandas as pd
 import requests
+import sqlite3
 import plotly.express as px
 import streamlit as st
 from datetime import datetime
 from dotenv import load_dotenv
-from streamlit_cookies_manager import EncryptedCookieManager
-import json
-from PIL import Image
-import qrcode
-import io  # Import io module for working with byte streams
 
 # Load environment variables
 load_dotenv()
 
 CRYPTOCOMPARE_API_KEY = os.getenv("CRYPTOCOMPARE_API_KEY")
 LIVECOINWATCH_API_KEY = os.getenv("LIVECOINWATCH_API_KEY")
-COOKIES_PASSWORD = os.getenv("COOKIES_PASSWORD")  # Load the cookies password
 
-# Ensure password is loaded
-if not COOKIES_PASSWORD:
-    st.error("COOKIES_PASSWORD is not set in the environment variables!")
-    st.stop()
+# Notify if API keys are missing
+if not CRYPTOCOMPARE_API_KEY or not LIVECOINWATCH_API_KEY:
+    st.warning("Some API keys are missing. Certain functionalities may not work.")
 
-# Initialize cookies
-cookies = EncryptedCookieManager(prefix="crypto_app", password=COOKIES_PASSWORD)  # Pass the password
-if not cookies.ready():
-    st.stop()
-
-# Default Tokens (you can add more tokens here initially)
+# Token List (Including Bonfida)
 TOKENS = {
     "BONK": "bonk",
     "Dogecoin": "dogecoin",
     "Shiba Inu": "shiba-inu",
-    "Bitcoin": "bitcoin",
-    "Ethereum": "ethereum",
-    "Litecoin": "litecoin",
-    "Ripple": "ripple",
-    "Solana": "solana",
-    "Polkadot": "polkadot"
+    "Floki Inu": "floki-inu",
+    "Baby Doge": "baby-doge-coin",
+    "Kishu Inu": "kishu-inu",
+    "Saitama": "saitama",
+    "SafeMoon": "safemoon",
+    "EverGrow Coin": "evergrow-coin",
+    "Akita Inu": "akita-inu",
+    "Volt Inu": "volt-inu",
+    "CateCoin": "catecoin",
+    "Shiba Predator": "shiba-predator",
+    "DogeBonk": "dogebonk",
+    "Flokinomics": "flokinomics",
+    "StarLink": "starlink",
+    "Elon Musk Coin": "elon-musk-coin",
+    "DogeGF": "dogegf",
+    "Ryoshi Vision": "ryoshi-vision",
+    "Shibaverse": "shibaverse",
+    "FEG Token": "feg-token",
+    "Dogelon Mars": "dogelon-mars",
+    "BabyFloki": "babyfloki",
+    "PolyDoge": "polydoge",
+    "TAMA": "tamadoge",
+    "SpookyShiba": "spookyshiba",
+    "Moonriver": "moonriver",
+    "MetaHero": "metahero",
+    "BabyDogeZilla": "babydogezilla",
+    "NanoDogeCoin": "nanodogecoin",
+    "BabyShark": "babyshark",
+    "Wakanda Inu": "wakanda-inu",
+    "King Shiba": "king-shiba",
+    "PepeCoin": "pepecoin",
+    "Pitbull": "pitbull",
+    "MoonDoge": "moondoge",
+    "CryptoZilla": "cryptozilla",
+    "MiniDoge": "minidoge",
+    "ZillaDoge": "zilladoge",
+    "DogeFloki": "dogefloki",
+    "Bonfida": "bonfida"
 }
 
-# Function to fetch live data from CryptoCompare API
-def fetch_live_data(token):
-    url = f"https://min-api.cryptocompare.com/data/price?fsym={token.upper()}&tsyms=USD"
-    headers = {
-        "Authorization": f"Apikey {CRYPTOCOMPARE_API_KEY}"
-    }
+# Initialize SQLite database
+def init_db():
+    conn = sqlite3.connect("portfolio.db")
+    c = conn.cursor()
     try:
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS portfolio (
+                token TEXT PRIMARY KEY,
+                quantity REAL,
+                value REAL
+            )
+        """)
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS transactions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                token TEXT,
+                date TEXT,
+                type TEXT,
+                quantity REAL,
+                price REAL,
+                total_value REAL
+            )
+        """)
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS watchlist (
+                token TEXT PRIMARY KEY
+            )
+        """)
+        conn.commit()
+    except sqlite3.Error as e:
+        st.error(f"Database Error: {e}")
+    return conn, c
+
+# Fetch price with fallback mechanism
+def fetch_price(token_id):
+    price = fetch_price_coingecko(token_id)
+    if price is None:
+        price = fetch_price_cryptocompare(token_id)
+    if price is None:
+        price = fetch_price_livecoinwatch(token_id)
+    return price
+
+def fetch_price_coingecko(token_id):
+    try:
+        url = f"https://api.coingecko.com/api/v3/simple/price?ids={token_id}&vs_currencies=usd&include_market_cap=true&include_24hr_change=true&include_24hr_vol=true"
+        response = requests.get(url)
+        response.raise_for_status()
+        data = response.json().get(token_id, {})
+        return {
+            "price": data.get("usd"),
+            "market_cap": data.get("usd_market_cap"),
+            "volume": data.get("usd_24h_vol"),
+            "change_24h": data.get("usd_24h_change")
+        }
+    except requests.RequestException as e:
+        st.error(f"Coingecko API Error: {e}")
+        return None
+
+def fetch_price_cryptocompare(token_id):
+    try:
+        url = f"https://min-api.cryptocompare.com/data/price?fsym={token_id.upper()}&tsyms=USD"
+        headers = {"authorization": f"Apikey {CRYPTOCOMPARE_API_KEY}"}
         response = requests.get(url, headers=headers)
-        response.raise_for_status()  # Raise an error if the request was unsuccessful
+        response.raise_for_status()
+        return {"price": response.json().get("USD")}
+    except requests.RequestException as e:
+        st.error(f"CryptoCompare API Error: {e}")
+        return None
+
+def fetch_price_livecoinwatch(token_id):
+    try:
+        url = "https://api.livecoinwatch.com/coins/single"
+        headers = {"x-api-key": LIVECOINWATCH_API_KEY}
+        payload = {"code": token_id.upper(), "currency": "USD", "meta": True}
+        response = requests.post(url, json=payload, headers=headers)
+        response.raise_for_status()
         data = response.json()
-        if 'USD' in data:
-            return data
-        else:
-            st.error(f"USD data not found for {token}.")
-            return None
-    except requests.exceptions.RequestException as e:
-        st.error(f"Failed to fetch live data for {token}: {e}")
+        return {"price": data.get("rate")}
+    except requests.RequestException as e:
+        st.error(f"LiveCoinWatch API Error: {e}")
         return None
 
-# Function to fetch historical data for a token
-def fetch_historical_prices(token):
-    url = f"https://min-api.cryptocompare.com/data/v2/histoday?fsym={token.upper()}&tsym=USD&limit=2000"
-    headers = {
-        "Authorization": f"Apikey {CRYPTOCOMPARE_API_KEY}"
-    }
-    try:
-        response = requests.get(url, headers=headers)
-        response.raise_for_status()
-        data = response.json()["Data"]["Data"]
-        return [(entry['time'], token, entry['close'], entry['time']) for entry in data]
-    except requests.exceptions.RequestException as e:
-        st.error(f"Failed to fetch historical data for {token}: {e}")
-        return None
-
-# Function to generate a QR code
-def generate_qr_code(data):
-    qr = qrcode.QRCode(
-        version=1,
-        error_correction=qrcode.constants.ERROR_CORRECT_L,
-        box_size=10,
-        border=4,
-    )
-    qr.add_data(data)
-    qr.make(fit=True)
-    img = qr.make_image(fill="black", back_color="white")
-    return img
-
-# Function to fetch token details (price, market cap, etc.)
-def fetch_token_details(token):
-    url = f"https://min-api.cryptocompare.com/data/all/coinlist"
-    headers = {
-        "Authorization": f"Apikey {CRYPTOCOMPARE_API_KEY}"
-    }
-    try:
-        response = requests.get(url, headers=headers)
-        response.raise_for_status()
-        tokens = response.json()["Data"]
-        token_details = tokens.get(token.upper())
-        return token_details if token_details else f"Details for {token} not found"
-    except requests.exceptions.RequestException as e:
-        st.error(f"Failed to fetch token details for {token}: {e}")
-        return None
-
-# Function to manage token list (Add custom tokens)
-def add_custom_token(token_name, token_symbol):
-    TOKENS[token_name] = token_symbol
-
-# Main Function to run the Streamlit app
-def main():
-    # Render the landing page
-    st.title("Crypto Portfolio Tracker")
-    st.write("Track your cryptocurrency portfolio using live data from various sources.")
-    
-    # Check if cookies are ready (for any user-specific data)
-    if cookies.ready():
-        st.write("Cookies are ready!")
+# Add token to portfolio
+def add_token(c, conn, token, quantity, price):
+    c.execute("SELECT quantity FROM portfolio WHERE token = ?", (token,))
+    existing = c.fetchone()
+    if existing:
+        new_quantity = existing[0] + quantity
+        new_value = new_quantity * price
+        c.execute("UPDATE portfolio SET quantity = ?, value = ? WHERE token = ?", (new_quantity, new_value, token))
     else:
-        st.error("Cookies are not ready. Please check the cookie configuration.")
-    
-    # Sidebar Navigation
-    st.sidebar.title("Sidebar Navigation")
-    st.sidebar.write("Use the sidebar to explore different features!")
+        total_value = quantity * price
+        c.execute("INSERT INTO portfolio (token, quantity, value) VALUES (?, ?, ?)", (token, quantity, total_value))
+    c.execute("""
+        INSERT INTO transactions (token, date, type, quantity, price, total_value)
+        VALUES (?, ?, ?, ?, ?, ?)
+    """, (token, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "Buy", quantity, price, total_value))
+    conn.commit()
 
-    # Add a feature to add custom tokens
-    st.sidebar.subheader("Add Custom Token")
-    custom_token_name = st.sidebar.text_input("Token Name (e.g., Bitcoin)")
-    custom_token_symbol = st.sidebar.text_input("Token Symbol (e.g., BTC)")
-
-    if st.sidebar.button("Add Custom Token"):
-        if custom_token_name and custom_token_symbol:
-            add_custom_token(custom_token_name, custom_token_symbol)
-            st.sidebar.success(f"Token {custom_token_name} added successfully!")
-        else:
-            st.sidebar.error("Please fill in both fields to add a custom token.")
-
-    # Allow the user to select a token to display its data
-    token_choice = st.selectbox("Select a Token to View", list(TOKENS.keys()))
-
-    # Fetch and display live data for selected token
-    st.subheader(f"Live Data for {token_choice}")
-    token_symbol = TOKENS[token_choice]
-    
-    # Add a loading spinner while fetching data
-    with st.spinner(f"Fetching data for {token_choice}..."):
-        token_data = fetch_live_data(token_symbol)
-        if token_data:
-            st.write(f"{token_choice} Price (USD): ${token_data['USD']}")
-        else:
-            st.error(f"Failed to fetch live data for {token_choice}!")
-
-    # Show the portfolio of tokens (You can update with your portfolio data)
-    st.subheader("Your Portfolio")
-    portfolio = {
-        "Bitcoin": 0.5,
-        "Ethereum": 1.2,
-        "Dogecoin": 5000
-    }
-    
-    portfolio_df = pd.DataFrame(portfolio.items(), columns=["Token", "Amount"])
-    st.write(portfolio_df)
-
-    # Show historical prices of the selected token
-    st.subheader("Crypto Price History")
-    if st.button('Show Historical Data'):
-        with st.spinner(f"Fetching historical data for {token_choice}..."):
-            historical_prices = fetch_historical_prices(token_symbol)
-            if historical_prices:
-                df = pd.DataFrame(historical_prices, columns=["ID", "Token", "Price", "Timestamp"])
-                df["Timestamp"] = pd.to_datetime(df["Timestamp"], unit='s')
-                fig = px.line(df, x="Timestamp", y="Price", title=f"{token_choice} Price Over Time")
-                st.plotly_chart(fig)
-
-    # Show portfolio distribution as a pie chart
-    if st.button('Show Portfolio Chart'):
-        fig = px.pie(portfolio_df, names='Token', values='Amount', title='Portfolio Distribution')
+# Display portfolio
+def display_portfolio(c):
+    c.execute("SELECT * FROM portfolio")
+    data = c.fetchall()
+    if not data:
+        st.write("Your portfolio is empty!")
+        return
+    df = pd.DataFrame(data, columns=["Token", "Quantity", "Value"])
+    total_value = df["Value"].sum()
+    st.write("### Your Portfolio")
+    st.write(df)
+    st.write(f"**Total Portfolio Value:** ${total_value:,.2f}")
+    if st.checkbox("Show Portfolio Allocation Chart", key="portfolio_chart"):
+        fig = px.pie(df, values="Value", names="Token", title="Portfolio Allocation")
         st.plotly_chart(fig)
 
-    # Show QR Code generation feature
-    if st.button('Generate QR Code'):
-        img = generate_qr_code("https://www.cryptotracker.com")
-        st.image(img, caption="Your Portfolio QR Code")
-
-    # Show token details if available
-    if st.button("Show Token Details"):
-        with st.spinner(f"Fetching details for {token_choice}..."):
-            token_info = fetch_token_details(token_symbol)
-            if token_info:
-                st.write(token_info)
+# Manage and display watchlist with live prices and changes
+def manage_watchlist(c, conn):
+    st.subheader("Manage Watchlist")
+    token_name = st.selectbox("Select Token to Add/Remove", options=list(TOKENS.keys()), key="manage_watchlist")
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("Add to Watchlist", key="add_watchlist"):
+            c.execute("SELECT token FROM watchlist WHERE token = ?", (token_name,))
+            if c.fetchone():
+                st.warning(f"{token_name} is already in your watchlist.")
             else:
-                st.error("Failed to fetch token details.")
-    
-    # Displaying a QR Code for any URL (demo)
-    if st.button("Generate QR for URL"):
-        url = "https://www.cryptotracker.com"
-        qr_code = generate_qr_code(url)
-        st.image(qr_code, caption="QR Code for CryptoTracker URL")
-    
-    # Final footer message
-    st.markdown("""
-    <footer>
-        <p>Powered by CryptoCompare API and Streamlit | Developed with ❤️</p>
-    </footer>
-    """, unsafe_allow_html=True)
+                c.execute("INSERT INTO watchlist (token) VALUES (?)", (token_name,))
+                conn.commit()
+                st.success(f"{token_name} added to your watchlist.")
+    with col2:
+        if st.button("Remove from Watchlist", key="remove_watchlist"):
+            c.execute("DELETE FROM watchlist WHERE token = ?", (token_name,))
+            conn.commit()
+            st.success(f"{token_name} removed from your watchlist.")
+    st.write("### Your Watchlist")
+    c.execute("SELECT token FROM watchlist")
+    tokens = c.fetchall()
+    if tokens:
+        watchlist_data = []
+        for token in tokens:
+            token_name = token[0]
+            token_id = TOKENS.get(token_name)
+            if token_id:
+                price_info = fetch_price(token_id)
+                if price_info:
+                    price = price_info.get("price", "N/A")
+                    change_24h = price_info.get("change_24h", "N/A")
+                    watchlist_data.append({"Token": token_name, "Price (USD)": price, "24h Change (%)": change_24h})
+                else:
+                    watchlist_data.append({"Token": token_name, "Price (USD)": "N/A", "24h Change (%)": "N/A"})
+        df_watchlist = pd.DataFrame(watchlist_data)
+        st.write(df_watchlist.style.format({"Price (USD)": "${:.6f}", "24h Change (%)": "{:.2f}%"}))
+    else:
+        st.write("Your watchlist is empty.")
+    if st.button("Clear Watchlist", key="clear_watchlist"):
+        c.execute("DELETE FROM watchlist")
+        conn.commit()
+        st.success("Watchlist cleared.")
 
-# Run the app
+# Main app
+def main():
+    st.title("🚀 Enhanced Crypto Portfolio Manager 🚀")
+    conn, c = init_db()
+    st.subheader("Portfolio Management")
+    display_portfolio(c)
+    st.subheader("Manage Watchlist")
+    manage_watchlist(c, conn)
+    st.subheader("Add a Token to Your Portfolio")
+    token_name = st.selectbox("Select Token", options=list(TOKENS.keys()), key="add_token_portfolio")
+    quantity = st.number_input("Enter Quantity Owned", min_value=0.0, step=0.01, key="token_quantity")
+    if st.button("Add Token", key="add_token"):
+        token_id = TOKENS.get(token_name)
+        if not token_id:
+            st.error("Invalid token selection.")
+            return
+        price_info = fetch_price(token_id)
+        if price_info and price_info.get("price"):
+            add_token(c, conn, token_name, quantity, price_info["price"])
+            st.success(f"Added {quantity} of {token_name} at ${price_info['price']:.6f} each.")
+        else:
+            st.error("Failed to fetch the price. Please try again.")
+
 if __name__ == "__main__":
     main()
