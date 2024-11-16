@@ -13,10 +13,9 @@ load_dotenv()
 CRYPTOCOMPARE_API_KEY = os.getenv("CRYPTOCOMPARE_API_KEY")
 LIVECOINWATCH_API_KEY = os.getenv("LIVECOINWATCH_API_KEY")
 
-# Check API keys
+# Notify if API keys are missing
 if not CRYPTOCOMPARE_API_KEY or not LIVECOINWATCH_API_KEY:
-    st.error("API keys are missing! Check the .env file.")
-    exit()
+    st.warning("Some API keys are missing. Certain functionalities may not work.")
 
 # Token List (Including Bonfida)
 TOKENS = {
@@ -67,30 +66,33 @@ TOKENS = {
 def init_db():
     conn = sqlite3.connect("portfolio.db")
     c = conn.cursor()
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS portfolio (
-            token TEXT PRIMARY KEY,
-            quantity REAL,
-            value REAL
-        )
-    """)
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS transactions (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            token TEXT,
-            date TEXT,
-            type TEXT,
-            quantity REAL,
-            price REAL,
-            total_value REAL
-        )
-    """)
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS watchlist (
-            token TEXT PRIMARY KEY
-        )
-    """)
-    conn.commit()
+    try:
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS portfolio (
+                token TEXT PRIMARY KEY,
+                quantity REAL,
+                value REAL
+            )
+        """)
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS transactions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                token TEXT,
+                date TEXT,
+                type TEXT,
+                quantity REAL,
+                price REAL,
+                total_value REAL
+            )
+        """)
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS watchlist (
+                token TEXT PRIMARY KEY
+            )
+        """)
+        conn.commit()
+    except sqlite3.Error as e:
+        st.error(f"Database Error: {e}")
     return conn, c
 
 # Fetch price with fallback mechanism
@@ -114,7 +116,8 @@ def fetch_price_coingecko(token_id):
             "volume": data.get("usd_24h_vol"),
             "change_24h": data.get("usd_24h_change")
         }
-    except requests.RequestException:
+    except requests.RequestException as e:
+        st.error(f"Coingecko API Error: {e}")
         return None
 
 def fetch_price_cryptocompare(token_id):
@@ -124,7 +127,8 @@ def fetch_price_cryptocompare(token_id):
         response = requests.get(url, headers=headers)
         response.raise_for_status()
         return {"price": response.json().get("USD")}
-    except requests.RequestException:
+    except requests.RequestException as e:
+        st.error(f"CryptoCompare API Error: {e}")
         return None
 
 def fetch_price_livecoinwatch(token_id):
@@ -136,14 +140,21 @@ def fetch_price_livecoinwatch(token_id):
         response.raise_for_status()
         data = response.json()
         return {"price": data.get("rate")}
-    except requests.RequestException:
+    except requests.RequestException as e:
+        st.error(f"LiveCoinWatch API Error: {e}")
         return None
 
 # Add token to portfolio
 def add_token(c, conn, token, quantity, price):
-    total_value = quantity * price
-    c.execute("INSERT OR REPLACE INTO portfolio (token, quantity, value) VALUES (?, ?, ?)",
-              (token, quantity, total_value))
+    c.execute("SELECT quantity FROM portfolio WHERE token = ?", (token,))
+    existing = c.fetchone()
+    if existing:
+        new_quantity = existing[0] + quantity
+        new_value = new_quantity * price
+        c.execute("UPDATE portfolio SET quantity = ?, value = ? WHERE token = ?", (new_quantity, new_value, token))
+    else:
+        total_value = quantity * price
+        c.execute("INSERT INTO portfolio (token, quantity, value) VALUES (?, ?, ?)", (token, quantity, total_value))
     c.execute("""
         INSERT INTO transactions (token, date, type, quantity, price, total_value)
         VALUES (?, ?, ?, ?, ?, ?)
@@ -162,37 +173,32 @@ def display_portfolio(c):
     st.write("### Your Portfolio")
     st.write(df)
     st.write(f"**Total Portfolio Value:** ${total_value:,.2f}")
-
-    # Optional: Show portfolio allocation chart
-    if st.checkbox("Show Portfolio Allocation Chart"):
+    if st.checkbox("Show Portfolio Allocation Chart", key="portfolio_chart"):
         fig = px.pie(df, values="Value", names="Token", title="Portfolio Allocation")
         st.plotly_chart(fig)
 
 # Manage and display watchlist with live prices and changes
 def manage_watchlist(c, conn):
     st.subheader("Manage Watchlist")
-    token_name = st.selectbox("Select Token to Add/Remove", options=list(TOKENS.keys()))
+    token_name = st.selectbox("Select Token to Add/Remove", options=list(TOKENS.keys()), key="manage_watchlist")
     col1, col2 = st.columns(2)
-
-    # Add to watchlist
     with col1:
-        if st.button("Add to Watchlist"):
-            c.execute("INSERT OR IGNORE INTO watchlist (token) VALUES (?)", (token_name,))
-            conn.commit()
-            st.success(f"{token_name} added to your watchlist.")
-
-    # Remove from watchlist
+        if st.button("Add to Watchlist", key="add_watchlist"):
+            c.execute("SELECT token FROM watchlist WHERE token = ?", (token_name,))
+            if c.fetchone():
+                st.warning(f"{token_name} is already in your watchlist.")
+            else:
+                c.execute("INSERT INTO watchlist (token) VALUES (?)", (token_name,))
+                conn.commit()
+                st.success(f"{token_name} added to your watchlist.")
     with col2:
-        if st.button("Remove from Watchlist"):
+        if st.button("Remove from Watchlist", key="remove_watchlist"):
             c.execute("DELETE FROM watchlist WHERE token = ?", (token_name,))
             conn.commit()
             st.success(f"{token_name} removed from your watchlist.")
-
-    # Display the watchlist with live prices
     st.write("### Your Watchlist")
     c.execute("SELECT token FROM watchlist")
     tokens = c.fetchall()
-
     if tokens:
         watchlist_data = []
         for token in tokens:
@@ -202,21 +208,15 @@ def manage_watchlist(c, conn):
                 price_info = fetch_price(token_id)
                 if price_info:
                     price = price_info.get("price", "N/A")
-                    change_24h = price_info.get("change_24h", "N/A")  # Safely fetch the value
+                    change_24h = price_info.get("change_24h", "N/A")
                     watchlist_data.append({"Token": token_name, "Price (USD)": price, "24h Change (%)": change_24h})
                 else:
                     watchlist_data.append({"Token": token_name, "Price (USD)": "N/A", "24h Change (%)": "N/A"})
-            else:
-                watchlist_data.append({"Token": token_name, "Price (USD)": "N/A", "24h Change (%)": "N/A"})
-
-        # Create a DataFrame for display
         df_watchlist = pd.DataFrame(watchlist_data)
-        st.write(df_watchlist)
+        st.write(df_watchlist.style.format({"Price (USD)": "${:.6f}", "24h Change (%)": "{:.2f}%"}))
     else:
         st.write("Your watchlist is empty.")
-
-    # Clear entire watchlist
-    if st.button("Clear Watchlist"):
+    if st.button("Clear Watchlist", key="clear_watchlist"):
         c.execute("DELETE FROM watchlist")
         conn.commit()
         st.success("Watchlist cleared.")
@@ -225,18 +225,19 @@ def manage_watchlist(c, conn):
 def main():
     st.title("🚀 Enhanced Crypto Portfolio Manager 🚀")
     conn, c = init_db()
-
     st.subheader("Portfolio Management")
     display_portfolio(c)
-
     st.subheader("Manage Watchlist")
     manage_watchlist(c, conn)
-
     st.subheader("Add a Token to Your Portfolio")
-    token_name = st.selectbox("Select Token", options=list(TOKENS.keys()))
-    quantity = st.number_input("Enter Quantity Owned", min_value=0.0, step=0.01)
-    if st.button("Add Token"):
-        price_info = fetch_price(TOKENS[token_name])
+    token_name = st.selectbox("Select Token", options=list(TOKENS.keys()), key="add_token_portfolio")
+    quantity = st.number_input("Enter Quantity Owned", min_value=0.0, step=0.01, key="token_quantity")
+    if st.button("Add Token", key="add_token"):
+        token_id = TOKENS.get(token_name)
+        if not token_id:
+            st.error("Invalid token selection.")
+            return
+        price_info = fetch_price(token_id)
         if price_info and price_info.get("price"):
             add_token(c, conn, token_name, quantity, price_info["price"])
             st.success(f"Added {quantity} of {token_name} at ${price_info['price']:.6f} each.")
