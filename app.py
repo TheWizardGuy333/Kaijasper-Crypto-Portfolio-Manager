@@ -67,6 +67,7 @@ TOKENS = {
     "ZillaDoge": "zilladoge",
     "DogeFloki": "dogefloki",
     "Bonfida": "bonfida",
+    "Rexas Finance": "rexas-finance",
     # Add other tokens as required...
 }
 
