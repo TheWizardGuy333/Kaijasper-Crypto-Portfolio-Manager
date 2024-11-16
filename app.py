@@ -147,6 +147,16 @@ def add_token(c, conn, token, quantity, price):
         st.error(f"Database Error: {e}")
         logger.error(f"Database Error: {e}")
 
+# Delete token from portfolio
+def delete_token(c, conn, token):
+    try:
+        c.execute("DELETE FROM portfolio WHERE token = ?", (token,))
+        conn.commit()
+        st.success(f"{token} has been removed from your portfolio.")
+    except sqlite3.Error as e:
+        st.error(f"Database Error: {e}")
+        logger.error(f"Database Error: {e}")
+
 # Display portfolio
 def display_portfolio(c):
     try:
@@ -172,8 +182,31 @@ def main():
     st.title("🚀 Kaijasper Crypto Portfolio Manager 🚀")
     conn, c = init_db()
     if conn and c:
+        # Portfolio Management
         st.subheader("Portfolio Management")
         display_portfolio(c)
+
+        # Add Token
+        st.subheader("Add a Token to Portfolio")
+        token_name = st.selectbox("Select Token", options=list(TOKENS.keys()), key="add_token_portfolio")
+        quantity = st.number_input("Enter Quantity", min_value=0.0, step=0.01, key="token_quantity")
+        if st.button("Add Token", key="add_token"):
+            token_id = TOKENS.get(token_name)
+            if token_id:
+                price_info = fetch_price(token_id)
+                if price_info and price_info.get("price"):
+                    add_token(c, conn, token_name, quantity, price_info["price"])
+                else:
+                    st.error("Failed to fetch the token price. Please try again.")
+            else:
+                st.error("Invalid token selection.")
+
+        # Delete Token
+        st.subheader("Delete a Token from Portfolio")
+        tokens_in_portfolio = [row[0] for row in c.execute("SELECT token FROM portfolio").fetchall()]
+        token_to_delete = st.selectbox("Select Token to Delete", options=tokens_in_portfolio, key="delete_token")
+        if st.button("Delete Token", key="delete_token_btn"):
+            delete_token(c, conn, token_to_delete)
 
 if __name__ == "__main__":
     main()
