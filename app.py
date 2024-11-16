@@ -1,3 +1,47 @@
+errors:
+Coingecko API Error: 429 Client Error: Too Many Requests for url: https://api.coingecko.com/api/v3/simple/price?ids=dogecoin&vs_currencies=usd&include_market_cap=true&include_24hr_change=true&include_24hr_vol=true
+
+ValueError: This app has encountered an error. The original error message is redacted to prevent data leaks. Full error details have been recorded in the logs (if you're on Streamlit Cloud, click on 'Manage app' in the lower right of your app).
+Traceback:
+File "/home/adminuser/venv/lib/python3.12/site-packages/streamlit/runtime/scriptrunner/exec_code.py", line 88, in exec_func_with_error_handling
+    result = func()
+             ^^^^^^
+File "/home/adminuser/venv/lib/python3.12/site-packages/streamlit/runtime/scriptrunner/script_runner.py", line 579, in code_to_exec
+    exec(code, module.__dict__)
+File "/mount/src/kaijasper-crypto-portfolio-manager/app.py", line 248, in <module>
+    main()
+File "/mount/src/kaijasper-crypto-portfolio-manager/app.py", line 231, in main
+    manage_watchlist(c, conn)
+File "/mount/src/kaijasper-crypto-portfolio-manager/app.py", line 216, in manage_watchlist
+    st.write(df_watchlist.style.format({"Price (USD)": "${:.6f}", "24h Change (%)": "{:.2f}%"}))
+File "/home/adminuser/venv/lib/python3.12/site-packages/streamlit/runtime/metrics_util.py", line 410, in wrapped_func
+    result = non_optional_func(*args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+File "/home/adminuser/venv/lib/python3.12/site-packages/streamlit/elements/write.py", line 423, in write
+    self.dg.dataframe(arg)
+File "/home/adminuser/venv/lib/python3.12/site-packages/streamlit/runtime/metrics_util.py", line 410, in wrapped_func
+    result = non_optional_func(*args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+File "/home/adminuser/venv/lib/python3.12/site-packages/streamlit/elements/arrow.py", line 547, in dataframe
+    marshall_styler(proto, data, default_uuid)
+File "/home/adminuser/venv/lib/python3.12/site-packages/streamlit/elements/lib/pandas_styler_utils.py", line 63, in marshall_styler
+    pandas_styles = styler._translate(False, False)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+File "/home/adminuser/venv/lib/python3.12/site-packages/pandas/io/formats/style_render.py", line 335, in _translate
+    body: list = self._translate_body(idx_lengths, max_rows, max_cols)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+File "/home/adminuser/venv/lib/python3.12/site-packages/pandas/io/formats/style_render.py", line 629, in _translate_body
+    body_row = self._generate_body_row(
+               ^^^^^^^^^^^^^^^^^^^^^^^^
+File "/home/adminuser/venv/lib/python3.12/site-packages/pandas/io/formats/style_render.py", line 826, in _generate_body_row
+    display_value=self._display_funcs[(r, c)](value),
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+File "/home/adminuser/venv/lib/python3.12/site-packages/pandas/io/formats/style_render.py", line 1829, in <lambda>
+    func_0 = lambda x: formatter.format(x)
+                       ^^^^^^^^^^^^^^^^^^^
+
+
+code with errors:
 import os 
 import pandas as pd
 import requests
