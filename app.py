@@ -34,178 +34,138 @@ TOKENS = {
     "BONK": "bonk",
     "Dogecoin": "dogecoin",
     "Shiba Inu": "shiba-inu",
-    "Floki Inu": "floki-inu",
-    "Baby Doge": "baby-doge-coin",
-    "Kishu Inu": "kishu-inu",
-    "Saitama": "saitama",
-    "SafeMoon": "safemoon",
-    "EverGrow Coin": "evergrow-coin",
-    "Akita Inu": "akita-inu",
-    "Volt Inu": "volt-inu",
-    "CateCoin": "catecoin",
-    "Shiba Predator": "shiba-predator",
-    "DogeBonk": "dogebonk",
-    "Flokinomics": "flokinomics",
-    "StarLink": "starlink",
-    "Elon Musk Coin": "elon-musk-coin",
-    "DogeGF": "dogegf",
-    "Ryoshi Vision": "ryoshi-vision",
-    "Shibaverse": "shibaverse",
-    "FEG Token": "feg-token",
-    "Dogelon Mars": "dogelon-mars",
-    "BabyFloki": "babyfloki",
-    "PolyDoge": "polydoge",
-    "TAMA": "tamadoge",
-    "SpookyShiba": "spookyshiba",
-    "Moonriver": "moonriver",
-    "MetaHero": "metahero",
-    "BabyDogeZilla": "babydogezilla",
-    "NanoDogeCoin": "nanodogecoin",
-    "BabyShark": "babyshark",
-    "Wakanda Inu": "wakanda-inu",
-    "King Shiba": "king-shiba",
-    "PepeCoin": "pepecoin",
-    "Pitbull": "pitbull",
-    "MoonDoge": "moondoge",
-    "CryptoZilla": "cryptozilla",
-    "MiniDoge": "minidoge",
-    "ZillaDoge": "zilladoge",
-    "DogeFloki": "dogefloki",
-    "Bonfida": "bonfida"
 }
 
-# Initialize SQLite database
-def init_db():
-    conn = sqlite3.connect("portfolio.db")
-    c = conn.cursor()
-    try:
-        c.execute("""
-            CREATE TABLE IF NOT EXISTS portfolio (
-                token TEXT PRIMARY KEY,
-                quantity REAL,
-                value REAL
-            )
-        """)
-        c.execute("""
-            CREATE TABLE IF NOT EXISTS watchlist (
-                token TEXT PRIMARY KEY
-            )
-        """)
-        conn.commit()
-    except sqlite3.Error as e:
-        st.error(f"Database Error: {e}")
-    return conn, c
+# Function to fetch live data from CryptoCompare API
+def fetch_live_data(token):
+    url = f"https://min-api.cryptocompare.com/data/price?fsym={token.upper()}&tsyms=USD"
+    headers = {
+        "Authorization": f"Apikey {CRYPTOCOMPARE_API_KEY}"
+    }
+    response = requests.get(url, headers=headers)
+    if response.status_code == 200:
+        return response.json()
+    return None
 
-# Fetch token price (Dummy for simplicity, replace with API logic)
-def fetch_price(token_id):
-    return {"price": 1.23}  # Replace with real API logic
+# Function to fetch historical data for a token
+def fetch_historical_prices(token):
+    url = f"https://min-api.cryptocompare.com/data/v2/histoday?fsym={token.upper()}&tsym=USD&limit=2000"
+    headers = {
+        "Authorization": f"Apikey {CRYPTOCOMPARE_API_KEY}"
+    }
+    response = requests.get(url, headers=headers)
+    if response.status_code == 200:
+        data = response.json()["Data"]["Data"]
+        return [(entry['time'], token, entry['close'], entry['time']) for entry in data]
+    return None
 
-# Display Portfolio
-def display_portfolio(c):
-    c.execute("SELECT * FROM portfolio")
-    data = c.fetchall()
-    if not data:
-        st.write("Your portfolio is empty!")
-        return
-    df = pd.DataFrame(data, columns=["Token", "Quantity", "Value"])
-    st.write("### Your Portfolio")
-    st.write(df)
+# Function to generate a QR code
+def generate_qr_code(data):
+    qr = qrcode.QRCode(
+        version=1,
+        error_correction=qrcode.constants.ERROR_CORRECT_L,
+        box_size=10,
+        border=4,
+    )
+    qr.add_data(data)
+    qr.make(fit=True)
+    img = qr.make_image(fill="black", back_color="white")
+    return img
 
-# Manage Watchlist
-def manage_watchlist(c, conn):
-    st.write("### Manage Watchlist")
-    token = st.selectbox("Add/Remove Token", list(TOKENS.keys()))
-    if st.button("Add to Watchlist"):
-        c.execute("INSERT OR IGNORE INTO watchlist (token) VALUES (?)", (token,))
-        conn.commit()
-        st.success(f"{token} added to watchlist!")
-    st.write("Your Watchlist:")
-    c.execute("SELECT token FROM watchlist")
-    st.write(c.fetchall())
+# Function to fetch token details (price, market cap, etc.)
+def fetch_token_details(token):
+    url = f"https://min-api.cryptocompare.com/data/all/coinlist"
+    headers = {
+        "Authorization": f"Apikey {CRYPTOCOMPARE_API_KEY}"
+    }
+    response = requests.get(url, headers=headers)
+    if response.status_code == 200:
+        tokens = response.json()["Data"]
+        token_details = tokens.get(token.upper())
+        return token_details if token_details else f"Details for {token} not found"
+    return None
 
-# Save Portfolio
-def save_portfolio(portfolio_data):
-    st.write("### Save Portfolio")
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("Download Portfolio"):
-            st.download_button(
-                label="Download Portfolio",
-                data=json.dumps(portfolio_data),
-                file_name="portfolio.json",
-                mime="application/json"
-            )
-    with col2:
-        if st.button("Save to Cookies"):
-            cookies["portfolio"] = json.dumps(portfolio_data)
-            cookies.save()
-            st.success("Portfolio saved to cookies!")
-
-# Load Portfolio
-def load_portfolio():
-    st.write("### Load Portfolio")
-    col1, col2 = st.columns(2)
-    portfolio = None
-    with col1:
-        uploaded_file = st.file_uploader("Upload Portfolio File", type="json")
-        if uploaded_file:
-            portfolio = json.load(uploaded_file)
-            st.write("Portfolio Loaded from File:", portfolio)
-    with col2:
-        if st.button("Load from Cookies"):
-            if "portfolio" in cookies:
-                portfolio = json.loads(cookies["portfolio"])
-                st.write("Portfolio Loaded from Cookies:", portfolio)
-            else:
-                st.error("No portfolio found in cookies!")
-    return portfolio
-
-# Generate QR Code
-def save_as_qr(portfolio_data):
-    st.write("### Save as QR Code")
-    if st.button("Generate QR Code"):
-        # Generate QR Code as a PIL Image
-        qr = qrcode.make(json.dumps(portfolio_data))
-        
-        # Save QR code to a BytesIO object
-        img_byte_arr = io.BytesIO()
-        qr.save(img_byte_arr)
-        img_byte_arr.seek(0)  # Go to the start of the BytesIO stream
-
-        # Display the QR code as an image
-        st.image(img_byte_arr, caption="Scan to Load Portfolio")
-
-# Load from QR Code
-def load_from_qr():
-    st.write("### Load from QR Code")
-    uploaded_qr = st.file_uploader("Upload QR Code (PNG/JPG)", type=["png", "jpg"])
-    if uploaded_qr:
-        qr_image = Image.open(uploaded_qr)
-        # Simulated decoding
-        decoded_data = '{"token": "BTC", "quantity": 2, "value": 60000}'
-        st.write("Decoded Portfolio:", json.loads(decoded_data))
-
-# Main App
+# Main Function to run the Streamlit app
 def main():
-    st.title("🚀 Enhanced Crypto Portfolio Manager 🚀")
-    conn, c = init_db()
+    # Render the landing page
+    st.title("Crypto Portfolio Tracker")
+    st.write("Track your cryptocurrency portfolio using live data from various sources.")
+    
+    # Check if cookies are ready (for any user-specific data)
+    if cookies.ready():
+        st.write("Cookies are ready!")
+    else:
+        st.error("Cookies are not ready. Please check the cookie configuration.")
+    
+    # Provide the option for the user to interact with the app
+    st.sidebar.title("Sidebar Navigation")
+    st.sidebar.write("Use the sidebar to explore different features!")
 
-    # Portfolio Section
-    st.subheader("Portfolio")
-    display_portfolio(c)
+    # Add a feature to display live data from APIs (CryptoCompare and LiveCoinWatch)
+    if st.button('Show live data'):
+        token_data = fetch_live_data("dogecoin")
+        if token_data:
+            st.write(token_data)
+        else:
+            st.error("Failed to fetch live data!")
 
-    # Save/Load Portfolio Options
-    portfolio_data = [{"token": "BTC", "quantity": 2, "value": 60000}]
-    save_portfolio(portfolio_data)
-    portfolio = load_portfolio()
+    # Example of displaying the portfolio (you can expand this with real data)
+    st.subheader("Your Portfolio")
+    portfolio = {
+        "Bitcoin": 0.5,
+        "Ethereum": 1.2,
+        "Dogecoin": 5000
+    }
+    
+    portfolio_df = pd.DataFrame(portfolio.items(), columns=["Token", "Amount"])
+    st.write(portfolio_df)
 
-    # QR Code Options
-    save_as_qr(portfolio_data)
-    load_from_qr()
+    # Add functionality to display historical prices or a chart
+    st.subheader("Crypto Price History")
+    if st.button('Show Historical Data'):
+        historical_prices = fetch_historical_prices("dogecoin")
+        if historical_prices:
+            df = pd.DataFrame(historical_prices, columns=["ID", "Token", "Price", "Timestamp"])
+            df["Timestamp"] = pd.to_datetime(df["Timestamp"], unit='s')
+            fig = px.line(df, x="Timestamp", y="Price", title="Dogecoin Price Over Time")
+            st.plotly_chart(fig)
 
-    # Watchlist Section
-    st.subheader("Watchlist")
-    manage_watchlist(c, conn)
+    # Option to show portfolio chart
+    if st.button('Show Portfolio Chart'):
+        fig = px.pie(portfolio_df, names='Token', values='Amount', title='Portfolio Distribution')
+        st.plotly_chart(fig)
 
+    # Show an image or QR Code
+    if st.button('Generate QR Code'):
+        img = generate_qr_code("https://www.cryptotracker.com")
+        st.image(img, caption="Your Portfolio QR Code")
+
+    # If there is an error in any function, it will stop execution and display an error message.
+    if not CRYPTOCOMPARE_API_KEY or not LIVECOINWATCH_API_KEY:
+        st.error("API Keys not configured. Please check your environment variables.")
+        st.stop()
+    
+    # Example of fetching token details and displaying them in the app
+    if st.button("Show Token Details"):
+        token_info = fetch_token_details("dogecoin")
+        if token_info:
+            st.write(token_info)
+        else:
+            st.error("Failed to fetch token details.")
+    
+    # Displaying a QR Code for any URL (demo)
+    if st.button("Generate QR for URL"):
+        url = "https://www.cryptotracker.com"
+        qr_code = generate_qr_code(url)
+        st.image(qr_code, caption="QR Code for CryptoTracker URL")
+    
+    # Final footer message
+    st.markdown("""
+    <footer>
+        <p>Powered by CryptoCompare API and Streamlit | Developed with ❤️</p>
+    </footer>
+    """, unsafe_allow_html=True)
+
+# Run the app
 if __name__ == "__main__":
     main()
