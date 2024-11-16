@@ -16,9 +16,15 @@ load_dotenv()
 
 CRYPTOCOMPARE_API_KEY = os.getenv("CRYPTOCOMPARE_API_KEY")
 LIVECOINWATCH_API_KEY = os.getenv("LIVECOINWATCH_API_KEY")
+COOKIES_PASSWORD = os.getenv("COOKIES_PASSWORD")  # Load the cookies password
+
+# Ensure password is loaded
+if not COOKIES_PASSWORD:
+    st.error("COOKIES_PASSWORD is not set in the environment variables!")
+    st.stop()
 
 # Initialize cookies
-cookies = EncryptedCookieManager(prefix="crypto_app")
+cookies = EncryptedCookieManager(prefix="crypto_app", password=COOKIES_PASSWORD)  # Pass the password
 if not cookies.ready():
     st.stop()
 
