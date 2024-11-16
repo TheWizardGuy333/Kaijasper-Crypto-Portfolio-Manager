@@ -1,14 +1,21 @@
 import os
+import sys
 import pandas as pd
 import requests
 import sqlite3
-import plotly.express as px
 import streamlit as st
 from datetime import datetime
 from dotenv import load_dotenv
 from cachetools import TTLCache
 import time
 import logging
+
+# Try importing plotly and handle missing module
+try:
+    import plotly.express as px
+except ModuleNotFoundError:
+    st.error("The `plotly` library is not installed. Please install it by running `pip install plotly`.")
+    sys.exit("Error: Missing required library `plotly`")
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -24,50 +31,13 @@ LIVECOINWATCH_API_KEY = os.getenv("LIVECOINWATCH_API_KEY")
 if not CRYPTOCOMPARE_API_KEY or not LIVECOINWATCH_API_KEY:
     st.warning("Some API keys are missing. Certain functionalities may not work.")
 
-# Token List
+# Token List (Including Bonfida)
 TOKENS = {
-     "BONK": "bonk",
+    "BONK": "bonk",
     "Dogecoin": "dogecoin",
     "Shiba Inu": "shiba-inu",
     "Floki Inu": "floki-inu",
-    "Baby Doge": "baby-doge-coin",
-    "Kishu Inu": "kishu-inu",
-    "Saitama": "saitama",
-    "SafeMoon": "safemoon",
-    "EverGrow Coin": "evergrow-coin",
-    "Akita Inu": "akita-inu",
-    "Volt Inu": "volt-inu",
-    "CateCoin": "catecoin",
-    "Shiba Predator": "shiba-predator",
-    "DogeBonk": "dogebonk",
-    "Flokinomics": "flokinomics",
-    "StarLink": "starlink",
-    "Elon Musk Coin": "elon-musk-coin",
-    "DogeGF": "dogegf",
-    "Ryoshi Vision": "ryoshi-vision",
-    "Shibaverse": "shibaverse",
-    "FEG Token": "feg-token",
-    "Dogelon Mars": "dogelon-mars",
-    "BabyFloki": "babyfloki",
-    "PolyDoge": "polydoge",
-    "TAMA": "tamadoge",
-    "SpookyShiba": "spookyshiba",
-    "Moonriver": "moonriver",
-    "MetaHero": "metahero",
-    "BabyDogeZilla": "babydogezilla",
-    "NanoDogeCoin": "nanodogecoin",
-    "BabyShark": "babyshark",
-    "Wakanda Inu": "wakanda-inu",
-    "King Shiba": "king-shiba",
-    "PepeCoin": "pepecoin",
-    "Pitbull": "pitbull",
-    "MoonDoge": "moondoge",
-    "CryptoZilla": "cryptozilla",
-    "MiniDoge": "minidoge",
-    "ZillaDoge": "zilladoge",
-    "DogeFloki": "dogefloki",
-    "Bonfida": "bonfida",
-    # Add more tokens as needed...
+    # Add other tokens as required...
 }
 
 # Initialize SQLite database
@@ -95,6 +65,11 @@ def init_db():
                 total_value REAL
             )
         """)
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS watchlist (
+                token TEXT PRIMARY KEY
+            )
+        """)
         conn.commit()
         return conn, c
     except sqlite3.Error as e:
@@ -103,7 +78,7 @@ def init_db():
         return None, None
 
 # Caching for API responses
-cache = TTLCache(maxsize=100, ttl=300)
+cache = TTLCache(maxsize=100, ttl=300)  # Cache up to 100 items for 5 minutes
 
 # Fetch price with fallback mechanisms
 def fetch_price(token_id):
@@ -172,16 +147,6 @@ def add_token(c, conn, token, quantity, price):
         st.error(f"Database Error: {e}")
         logger.error(f"Database Error: {e}")
 
-# Delete token from portfolio
-def delete_token(c, conn, token):
-    try:
-        c.execute("DELETE FROM portfolio WHERE token = ?", (token,))
-        conn.commit()
-        st.success(f"{token} has been removed from your portfolio.")
-    except sqlite3.Error as e:
-        st.error(f"Database Error: {e}")
-        logger.error(f"Database Error: {e}")
-
 # Display portfolio
 def display_portfolio(c):
     try:
@@ -207,31 +172,8 @@ def main():
     st.title("🚀 Kaijasper Crypto Portfolio Manager 🚀")
     conn, c = init_db()
     if conn and c:
-        # Portfolio Management
         st.subheader("Portfolio Management")
         display_portfolio(c)
-
-        # Add Token
-        st.subheader("Add a Token to Portfolio")
-        token_name = st.selectbox("Select Token", options=list(TOKENS.keys()), key="add_token_portfolio")
-        quantity = st.number_input("Enter Quantity", min_value=0.0, step=0.01, key="token_quantity")
-        if st.button("Add Token", key="add_token"):
-            token_id = TOKENS.get(token_name)
-            if token_id:
-                price_info = fetch_price(token_id)
-                if price_info and price_info.get("price"):
-                    add_token(c, conn, token_name, quantity, price_info["price"])
-                else:
-                    st.error("Failed to fetch the token price. Please try again.")
-            else:
-                st.error("Invalid token selection.")
-
-        # Delete Token
-        st.subheader("Delete a Token from Portfolio")
-        tokens_in_portfolio = [row[0] for row in c.execute("SELECT token FROM portfolio").fetchall()]
-        token_to_delete = st.selectbox("Select Token to Delete", options=tokens_in_portfolio, key="delete_token")
-        if st.button("Delete Token", key="delete_token_btn"):
-            delete_token(c, conn, token_to_delete)
 
 if __name__ == "__main__":
     main()
