@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 from cachetools import TTLCache
 import time
 import logging
+import plotly
 
 # Try importing plotly and handle missing module
 try:
