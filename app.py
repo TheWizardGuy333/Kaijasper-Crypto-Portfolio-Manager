@@ -48,7 +48,6 @@ TOKENS = {
     "DogeBonk": "dogebonk",
     "Flokinomics": "flokinomics",
     "StarLink": "starlink",
-    "Elon Musk Coin": "elon-musk-coin",
     "DogeGF": "dogegf",
     "Ryoshi Vision": "ryoshi-vision",
     "Shibaverse": "shibaverse",
