@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 from cachetools import TTLCache
 import logging
 import plotly.express as px
+import threading
 
 # Try importing plotly and handle missing module
 try:
@@ -66,12 +67,26 @@ TOKENS = {
     "Bonfida": "bonfida",
 }
 
+# Mutex for thread-safe database operations
+db_lock = threading.Lock()
+
+# Enable SQLite WAL mode
+def enable_wal_mode():
+    conn = sqlite3.connect("portfolio.db", check_same_thread=False)
+    conn.execute("PRAGMA journal_mode=WAL;")
+    conn.close()
+
+# Get SQLite connection
+def get_connection():
+    db_path = os.path.join(os.getcwd(), "portfolio.db")
+    return sqlite3.connect(db_path, check_same_thread=False)
+
 # Initialize SQLite database
 @st.cache_resource
 def init_db():
     try:
-        db_path = os.path.join(os.getcwd(), "portfolio.db")
-        conn = sqlite3.connect(db_path, check_same_thread=False)
+        enable_wal_mode()
+        conn = get_connection()
         c = conn.cursor()
         c.execute("""
             CREATE TABLE IF NOT EXISTS portfolio (
@@ -97,11 +112,10 @@ def init_db():
             )
         """)
         conn.commit()
-        return conn, c
+        conn.close()
     except sqlite3.Error as e:
         st.error(f"Database Initialization Error: {e}")
         logger.error(f"Database Initialization Error: {e}")
-        return None, None
 
 # Caching for API responses
 cache = TTLCache(maxsize=100, ttl=300)  # Cache up to 100 items for 5 minutes
@@ -188,84 +202,98 @@ def fetch_price_livecoinwatch(token_id):
         return None
 
 # Add token to portfolio
-def add_token(c, conn, token, quantity, price):
-    try:
-        c.execute("SELECT quantity FROM portfolio WHERE token = ?", (token,))
-        existing = c.fetchone()
-        if existing:
-            new_quantity = existing[0] + quantity
-            new_value = new_quantity * price
-            c.execute("UPDATE portfolio SET quantity = ?, value = ? WHERE token = ?", (new_quantity, new_value, token))
-        else:
-            total_value = quantity * price
-            c.execute("INSERT INTO portfolio (token, quantity, value) VALUES (?, ?, ?)", (token, quantity, total_value))
-        c.execute("""
-            INSERT INTO transactions (token, date, type, quantity, price, total_value)
-            VALUES (?, ?, ?, ?, ?, ?)
-        """, (token, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "Buy", quantity, price, total_value))
-        conn.commit()
-        st.success(f"Added {quantity} of {token} to portfolio at ${price:.6f} each.")
-    except sqlite3.Error as e:
-        st.error(f"Database Error: {e}")
-        logger.error(f"Database Error: {e}")
+def add_token(token, quantity, price):
+    with db_lock:
+        conn = get_connection()
+        c = conn.cursor()
+        try:
+            c.execute("SELECT quantity FROM portfolio WHERE token = ?", (token,))
+            existing = c.fetchone()
+            if existing:
+                new_quantity = existing[0] + quantity
+                new_value = new_quantity * price
+                c.execute("UPDATE portfolio SET quantity = ?, value = ? WHERE token = ?", (new_quantity, new_value, token))
+            else:
+                total_value = quantity * price
+                c.execute("INSERT INTO portfolio (token, quantity, value) VALUES (?, ?, ?)", (token, quantity, total_value))
+            c.execute("""
+                INSERT INTO transactions (token, date, type, quantity, price, total_value)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (token, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "Buy", quantity, price, total_value))
+            conn.commit()
+            st.success(f"Added {quantity} of {token} to portfolio at ${price:.6f} each.")
+        except sqlite3.Error as e:
+            st.error(f"Database Error: {e}")
+            logger.error(f"Database Error: {e}")
+        finally:
+            conn.close()
 
 # Delete token from portfolio
-def delete_token(c, conn, token):
-    try:
-        c.execute("DELETE FROM portfolio WHERE token = ?", (token,))
-        conn.commit()
-        st.success(f"{token} has been removed from your portfolio.")
-    except sqlite3.Error as e:
-        st.error(f"Database Error: {e}")
-        logger.error(f"Database Error: {e}")
+def delete_token(token):
+    with db_lock:
+        conn = get_connection()
+        c = conn.cursor()
+        try:
+            c.execute("DELETE FROM portfolio WHERE token = ?", (token,))
+            conn.commit()
+            st.success(f"{token} has been removed from your portfolio.")
+        except sqlite3.Error as e:
+            st.error(f"Database Error: {e}")
+            logger.error(f"Database Error: {e}")
+        finally:
+            conn.close()
 
 # Display portfolio
-def display_portfolio(c):
+def display_portfolio():
+    conn = get_connection()
     try:
-        c.execute("SELECT * FROM portfolio")
-        data = c.fetchall()
-        if not data:
+        df = pd.read_sql_query("SELECT * FROM portfolio", conn)
+        if df.empty:
             st.write("Your portfolio is empty!")
             return
-        df = pd.DataFrame(data, columns=["Token", "Quantity", "Value"])
-        total_value = df["Value"].sum()
+        total_value = df["value"].sum()
         st.write("### Your Portfolio")
         st.write(df)
         st.write(f"**Total Portfolio Value:** ${total_value:,.2f}")
         if st.checkbox("Show Portfolio Allocation Chart", key="portfolio_chart"):
-            fig = px.pie(df, values="Value", names="Token", title="Portfolio Allocation")
+            fig = px.pie(df, values="value", names="token", title="Portfolio Allocation")
             st.plotly_chart(fig)
     except sqlite3.Error as e:
         st.error(f"Error displaying portfolio: {e}")
         logger.error(f"Error displaying portfolio: {e}")
+    finally:
+        conn.close()
 
 # Main app
 def main():
     st.title("🚀 Kaijasper Crypto Portfolio Manager 🚀")
-    conn, c = init_db()
-    if conn and c:
-        # Portfolio Management
-        st.subheader("Portfolio Management")
-        display_portfolio(c)
+    init_db()
 
-        # Add Token
-        st.subheader("Add a Token to Portfolio")
-        token_name = st.selectbox("Select Token", options=list(TOKENS.keys()), key="add_token_portfolio")
-        quantity = st.number_input("Enter Quantity", min_value=0.0, step=0.01, key="token_quantity")
-        if st.button("Add Token"):
-            price = fetch_price(TOKENS[token_name])
-            if price:
-                add_token(c, conn, token_name, quantity, price["price"])
-            else:
-                st.error(f"Could not fetch the price for {token_name}.")
-                
-        # Delete Token
-        st.subheader("Delete a Token from Portfolio")
-        delete_token_name = st.selectbox("Select Token to Delete", options=[row[0] for row in c.execute("SELECT token FROM portfolio")], key="delete_token")
-        if st.button("Delete Token"):
-            delete_token(c, conn, delete_token_name)
-    else:
-        st.error("Failed to initialize the database.")
+    # Portfolio Management
+    st.subheader("Portfolio Management")
+    display_portfolio()
+
+    # Add Token
+    st.subheader("Add a Token to Portfolio")
+    token_name = st.selectbox("Select Token", options=list(TOKENS.keys()), key="add_token_portfolio")
+    quantity = st.number_input("Enter Quantity", min_value=0.0, step=0.01, key="token_quantity")
+    if st.button("Add Token"):
+        price = fetch_price(TOKENS[token_name])
+        if price:
+            add_token(token_name, quantity, price["price"])
+        else:
+            st.error(f"Could not fetch the price for {token_name}.")
+            
+    # Delete Token
+    st.subheader("Delete a Token from Portfolio")
+    with db_lock:
+        conn = get_connection()
+        c = conn.cursor()
+        token_list = [row[0] for row in c.execute("SELECT token FROM portfolio")]
+        conn.close()
+    delete_token_name = st.selectbox("Select Token to Delete", options=token_list, key="delete_token")
+    if st.button("Delete Token"):
+        delete_token(delete_token_name)
 
 if __name__ == "__main__":
     main()
