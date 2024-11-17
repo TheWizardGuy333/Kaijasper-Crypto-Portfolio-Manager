@@ -13,13 +13,12 @@ import logging
 # Try importing plotly and handle missing module
 try:
     import plotly.express as px
-    import plotly.graph_objects as go
 except ModuleNotFoundError:
     st.error("The `plotly` library is not installed. Please install it by running `pip install plotly`.")
     sys.exit("Error: Missing required library `plotly`")
 
 # Setup logging
-logging.basicConfig(filename="app.log", level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
 # Load environment variables
@@ -32,11 +31,13 @@ LIVECOINWATCH_API_KEY = os.getenv("LIVECOINWATCH_API_KEY")
 if not CRYPTOCOMPARE_API_KEY or not LIVECOINWATCH_API_KEY:
     st.warning("Some API keys are missing. Certain functionalities may not work.")
 
-# Initialize token list (dynamic tokens added via user input)
+# Token List (Including Bonfida)
 TOKENS = {
     "BONK": "bonk",
     "Dogecoin": "dogecoin",
-    # Add other tokens dynamically via the app...
+    "Shiba Inu": "shiba-inu",
+    "Floki Inu": "floki-inu",
+    # Add other tokens as required...
 }
 
 # Initialize SQLite database
@@ -69,13 +70,6 @@ def init_db():
                 token TEXT PRIMARY KEY
             )
         """)
-        c.execute("""
-            CREATE TABLE IF NOT EXISTS price_alerts (
-                token TEXT PRIMARY KEY,
-                threshold REAL,
-                direction TEXT
-            )
-        """)
         conn.commit()
         return conn, c
     except sqlite3.Error as e:
@@ -84,27 +78,29 @@ def init_db():
         return None, None
 
 # Caching for API responses
-cache = TTLCache(maxsize=100, ttl=300)
+cache = TTLCache(maxsize=100, ttl=300)  # Cache up to 100 items for 5 minutes
 
 # Fetch price with fallback mechanisms
-def fetch_price(token_id, currency="usd"):
+def fetch_price(token_id):
     if token_id in cache:
         return cache[token_id]
-    price = fetch_price_coingecko(token_id, currency) or fetch_price_cryptocompare(token_id) or fetch_price_livecoinwatch(token_id)
+    price = fetch_price_coingecko(token_id) or fetch_price_cryptocompare(token_id) or fetch_price_livecoinwatch(token_id)
     if price:
         cache[token_id] = price
     return price
 
-def fetch_price_coingecko(token_id, currency="usd"):
+# Fetch price from Coingecko
+def fetch_price_coingecko(token_id):
     try:
-        url = f"https://api.coingecko.com/api/v3/simple/price?ids={token_id}&vs_currencies={currency}"
+        url = f"https://api.coingecko.com/api/v3/simple/price?ids={token_id}&vs_currencies=usd"
         response = requests.get(url)
         response.raise_for_status()
-        return {"price": response.json().get(token_id, {}).get(currency)}
+        return {"price": response.json().get(token_id, {}).get("usd")}
     except requests.RequestException as e:
         logger.error(f"Coingecko API Error: {e}")
         return None
 
+# Fetch price from CryptoCompare
 def fetch_price_cryptocompare(token_id):
     try:
         url = f"https://min-api.cryptocompare.com/data/price?fsym={token_id.upper()}&tsyms=USD"
@@ -116,6 +112,7 @@ def fetch_price_cryptocompare(token_id):
         logger.error(f"CryptoCompare API Error: {e}")
         return None
 
+# Fetch price from LiveCoinWatch
 def fetch_price_livecoinwatch(token_id):
     try:
         url = "https://api.livecoinwatch.com/coins/single"
@@ -128,83 +125,63 @@ def fetch_price_livecoinwatch(token_id):
         logger.error(f"LiveCoinWatch API Error: {e}")
         return None
 
-# Add new token dynamically by fetching from CoinGecko
-def add_new_token(token_name):
+# Add token to portfolio
+def add_token(c, conn, token, quantity, price):
     try:
-        token_id = token_name.lower().replace(" ", "-")
-        url = f"https://api.coingecko.com/api/v3/coins/{token_id}"
-        response = requests.get(url)
-        response.raise_for_status()
-        TOKENS[token_name] = token_id
-        st.success(f"Token '{token_name}' added successfully!")
-    except requests.RequestException as e:
-        st.error(f"Failed to add token '{token_name}': {e}")
-        logger.error(f"Error adding token '{token_name}': {e}")
-
-# Display historical price trends
-def display_historical_prices(token_id, days=30, currency="usd"):
-    try:
-        url = f"https://api.coingecko.com/api/v3/coins/{token_id}/market_chart?vs_currency={currency}&days={days}"
-        response = requests.get(url)
-        response.raise_for_status()
-        data = response.json()["prices"]
-        df = pd.DataFrame(data, columns=["Timestamp", "Price"])
-        df["Timestamp"] = pd.to_datetime(df["Timestamp"], unit="ms")
-        st.write(f"### Historical Prices for {token_id.capitalize()} (Last {days} Days)")
-        fig = px.line(df, x="Timestamp", y="Price", title=f"Price Trend for {token_id.capitalize()}")
-        st.plotly_chart(fig)
-    except requests.RequestException as e:
-        st.error(f"Failed to fetch historical prices: {e}")
-        logger.error(f"Error fetching historical prices: {e}")
-
-# Set price alerts
-def manage_price_alerts(c, conn):
-    st.subheader("Manage Price Alerts")
-    token_name = st.selectbox("Select Token", options=list(TOKENS.keys()), key="alert_token")
-    threshold = st.number_input("Enter Price Threshold", min_value=0.0, key="alert_threshold")
-    direction = st.selectbox("Direction", options=["Above", "Below"], key="alert_direction")
-    if st.button("Set Alert", key="set_alert"):
-        try:
-            c.execute("INSERT OR REPLACE INTO price_alerts (token, threshold, direction) VALUES (?, ?, ?)",
-                      (token_name, threshold, direction))
-            conn.commit()
-            st.success(f"Price alert set for {token_name} at {direction.lower()} ${threshold:.2f}.")
-        except sqlite3.Error as e:
-            st.error(f"Error setting price alert: {e}")
-            logger.error(f"Error setting price alert: {e}")
-# Check and trigger price alerts
-def check_price_alerts(c):
-    try:
-        c.execute("SELECT token, threshold, direction FROM price_alerts")
-        alerts = c.fetchall()
-        triggered_alerts = []
-        for token, threshold, direction in alerts:
-            token_id = TOKENS.get(token)
-            if not token_id:
-                continue
-            price_info = fetch_price(token_id)
-            if not price_info or not price_info.get("price"):
-                continue
-            current_price = price_info["price"]
-            if (direction == "Above" and current_price > threshold) or (direction == "Below" and current_price < threshold):
-                triggered_alerts.append((token, current_price, threshold, direction))
-        if triggered_alerts:
-            for alert in triggered_alerts:
-                token, current_price, threshold, direction = alert
-                st.warning(f"🚨 Alert: {token} is now {direction.lower()} ${threshold:.2f}. Current price: ${current_price:.2f}.")
+        c.execute("SELECT quantity FROM portfolio WHERE token = ?", (token,))
+        existing = c.fetchone()
+        if existing:
+            new_quantity = existing[0] + quantity
+            new_value = new_quantity * price
+            c.execute("UPDATE portfolio SET quantity = ?, value = ? WHERE token = ?", (new_quantity, new_value, token))
+        else:
+            total_value = quantity * price
+            c.execute("INSERT INTO portfolio (token, quantity, value) VALUES (?, ?, ?)", (token, quantity, total_value))
+        c.execute("""
+            INSERT INTO transactions (token, date, type, quantity, price, total_value)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (token, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "Buy", quantity, price, total_value))
+        conn.commit()
+        st.success(f"Added {quantity} of {token} to portfolio at ${price:.6f} each.")
     except sqlite3.Error as e:
-        st.error(f"Error checking price alerts: {e}")
-        logger.error(f"Error checking price alerts: {e}")
+        st.error(f"Database Error: {e}")
+        logger.error(f"Database Error: {e}")
+
+# Delete token from portfolio
+def delete_token(c, conn, token):
+    try:
+        c.execute("DELETE FROM portfolio WHERE token = ?", (token,))
+        conn.commit()
+        st.success(f"{token} has been removed from your portfolio.")
+    except sqlite3.Error as e:
+        st.error(f"Database Error: {e}")
+        logger.error(f"Database Error: {e}")
+
+# Display portfolio
+def display_portfolio(c):
+    try:
+        c.execute("SELECT * FROM portfolio")
+        data = c.fetchall()
+        if not data:
+            st.write("Your portfolio is empty!")
+            return
+        df = pd.DataFrame(data, columns=["Token", "Quantity", "Value"])
+        total_value = df["Value"].sum()
+        st.write("### Your Portfolio")
+        st.write(df)
+        st.write(f"**Total Portfolio Value:** ${total_value:,.2f}")
+        if st.checkbox("Show Portfolio Allocation Chart", key="portfolio_chart"):
+            fig = px.pie(df, values="Value", names="Token", title="Portfolio Allocation")
+            st.plotly_chart(fig)
+    except sqlite3.Error as e:
+        st.error(f"Error displaying portfolio: {e}")
+        logger.error(f"Error displaying portfolio: {e}")
 
 # Main app
 def main():
-    st.title("🚀 Crypto Portfolio Manager 🚀")
+    st.title("🚀 Kaijasper Crypto Portfolio Manager 🚀")
     conn, c = init_db()
     if conn and c:
-        # Check Price Alerts
-        st.subheader("🚨 Price Alerts")
-        check_price_alerts(c)
-
         # Portfolio Management
         st.subheader("Portfolio Management")
         display_portfolio(c)
@@ -227,58 +204,9 @@ def main():
         # Delete Token
         st.subheader("Delete a Token from Portfolio")
         tokens_in_portfolio = [row[0] for row in c.execute("SELECT token FROM portfolio").fetchall()]
-        if tokens_in_portfolio:
-            token_to_delete = st.selectbox("Select Token to Delete", options=tokens_in_portfolio, key="delete_token")
-            if st.button("Delete Token", key="delete_token_btn"):
-                delete_token(c, conn, token_to_delete)
-        else:
-            st.write("No tokens in portfolio to delete.")
-
-        # Token Performance Tracking
-        st.subheader("Token Performance Tracking")
-        if st.button("Show Performance", key="performance"):
-            calculate_percentage_change(c)
-
-        # Transaction History
-        st.subheader("Transaction History")
-        if st.button("View Transactions", key="view_transactions"):
-            display_transactions(c)
-
-        # Watchlist Management
-        st.subheader("Manage Watchlist")
-        manage_watchlist(c, conn)
-
-        # Add New Token
-        st.subheader("Add a New Token")
-        new_token_name = st.text_input("Enter New Token Name (e.g., 'Shiba Inu')", key="new_token")
-        if st.button("Add New Token", key="add_new_token"):
-            add_new_token(new_token_name)
-
-        # View Historical Prices
-        st.subheader("View Historical Prices")
-        selected_token = st.selectbox("Select Token for Historical Prices", options=list(TOKENS.keys()), key="historical_token")
-        days = st.slider("Select Number of Days", min_value=1, max_value=365, value=30, step=1, key="days_historical")
-        if st.button("Show Historical Prices", key="show_historical"):
-            token_id = TOKENS.get(selected_token)
-            if token_id:
-                display_historical_prices(token_id, days=days)
-            else:
-                st.error("Invalid token selection.")
-
-        # Manage Price Alerts
-        manage_price_alerts(c, conn)
-
-        # Database Management
-        st.subheader("Database Management")
-        if st.button("Backup Database", key="backup_db"):
-            backup_database()
-        if st.button("Restore Database", key="restore_db"):
-            restore_database()
-
-        # Log Viewer
-        st.subheader("View Logs")
-        if st.checkbox("Show Logs", key="view_logs"):
-            view_logs()
+        token_to_delete = st.selectbox("Select Token to Delete", options=tokens_in_portfolio, key="delete_token")
+        if st.button("Delete Token", key="delete_token_btn"):
+            delete_token(c, conn, token_to_delete)
 
 if __name__ == "__main__":
     main()
