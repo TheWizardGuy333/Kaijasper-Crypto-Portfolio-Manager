@@ -32,12 +32,12 @@ if not CRYPTOCOMPARE_API_KEY or not LIVECOINWATCH_API_KEY:
     st.warning("Some API keys are missing. Certain functionalities may not work.")
     logger.warning("Missing API keys: CryptoCompare or LiveCoinWatch.")
 
-# Token List (Including Bonfida)
+# Token List (Ensure compatibility with all APIs)
 TOKENS = {
-    "BONK": "bonk",
-    "Dogecoin": "dogecoin",
-    "Shiba Inu": "shiba-inu",
-    "Floki Inu": "floki-inu",
+    "BONK": "bonk",           # Coingecko format
+    "Dogecoin": "dogecoin",   # Coingecko format
+    "Shiba Inu": "shiba-inu", # Coingecko format
+    "Floki Inu": "floki-inu"  # Coingecko format
     # Add other tokens as required...
 }
 
@@ -219,7 +219,7 @@ def main():
                 else:
                     st.error(f"Failed to fetch the token price for {token_name}. Please check the token name or API connectivity.")
             else:
-                st.error("Invalid token selection.")
+                st.error(f"Token {token_name} is not supported.")
 
         # Delete Token
         st.subheader("Delete a Token from Portfolio")
