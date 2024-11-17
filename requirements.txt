@@ -14,5 +14,13 @@ pytz
 tenacity
 pyarrow
 qrcode[pil]
+Seaborn
+TensorFlow or PyTorch
+XGBoost
+LightGBM
+CatBoost
+Dask
+NLTK
+OpenCV
 streamlit-cookies-manager
 python-dotenv
