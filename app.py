@@ -103,6 +103,15 @@ def init_db():
         logger.error(f"Database Initialization Error: {e}")
         return None, None
 
+# ... your existing code ...
+
+st.subheader("Portfolio Management")
+# ... portfolio management code ...
+
+st.button("Visit Coinbase", on_click=lambda: st.sidebar.markdown(f"[Visit Coinbase](https://www.coinbase.com/explore/s/listed)", unsafe_allow_html=True))
+
+# ... your remaining code ...
+
 # Caching for API responses
 cache = TTLCache(maxsize=100, ttl=300)  # Cache up to 100 items for 5 minutes
 
