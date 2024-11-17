@@ -7,28 +7,8 @@ import streamlit as st
 from datetime import datetime
 from dotenv import load_dotenv
 from cachetools import TTLCache
-import time
 import logging
-
 import plotly.express as px
-import numpy as np
-import matplotlib.pyplot as plt
-import seaborn as sns
-import tensorflow as tf
-import xgboost as xgb
-import lightgbm as lgb
-import catboost as catb
-import dask
-import scipy
-import nltk
-import cv2
-import streamlit_cookies_manager
-import pytz
-import tenacity
-import pyarrow
-import qrcode
-
-# ... rest of your code ...
 
 # Try importing plotly and handle missing module
 try:
@@ -50,6 +30,7 @@ LIVECOINWATCH_API_KEY = os.getenv("LIVECOINWATCH_API_KEY")
 # Notify if API keys are missing
 if not CRYPTOCOMPARE_API_KEY or not LIVECOINWATCH_API_KEY:
     st.warning("Some API keys are missing. Certain functionalities may not work.")
+    logger.warning("Missing API keys: CryptoCompare or LiveCoinWatch.")
 
 # Token List (Including Bonfida)
 TOKENS = {
@@ -228,28 +209,5 @@ def main():
         if st.button("Delete Token", key="delete_token_btn"):
             delete_token(c, conn, token_to_delete)
 
-# ... rest of your code ...
-
-# Main app
-def main():
-  st.title(" Kaijasper Crypto Portfolio Manager ")
-  conn, c = init_db()
-  if conn and c:
-    # Portfolio Management
-    st.subheader("Portfolio Management")
-    display_portfolio(c)
-
-    # Add Token
-    st.subheader("Add a Token to Portfolio")
-    # ... rest of the add token section ...
-
-    # Delete Token
-    st.subheader("Delete a Token from Portfolio")
-    # ... rest of the delete token section ...
-
-    # Download Portfolio as CSV Button
-    if st.button("Download Portfolio as CSV"):
-      download_portfolio_csv(c)
-
 if __name__ == "__main__":
-  main()
+    main()
