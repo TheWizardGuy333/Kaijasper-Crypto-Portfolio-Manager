@@ -83,12 +83,25 @@ cache = TTLCache(maxsize=100, ttl=300)  # Cache up to 100 items for 5 minutes
 
 # Fetch price with fallback mechanisms
 def fetch_price(token_id):
-    if token_id in cache:
-        return cache[token_id]
-    price = fetch_price_coingecko(token_id) or fetch_price_cryptocompare(token_id) or fetch_price_livecoinwatch(token_id)
-    if price:
-        cache[token_id] = price
-    return price
+    try:
+        if token_id in cache:
+            logger.info(f"Cache hit for token: {token_id}")
+            return cache[token_id]
+        
+        logger.info(f"Fetching price for token: {token_id}")
+        price = (fetch_price_coingecko(token_id) or 
+                 fetch_price_cryptocompare(token_id) or 
+                 fetch_price_livecoinwatch(token_id))
+        
+        if price:
+            cache[token_id] = price
+            logger.info(f"Price fetched successfully: {price}")
+        else:
+            logger.warning(f"Price not found for token: {token_id}")
+        return price
+    except Exception as e:
+        logger.error(f"Error fetching price for {token_id}: {e}")
+        return None
 
 # Fetch price from Coingecko
 def fetch_price_coingecko(token_id):
@@ -96,9 +109,11 @@ def fetch_price_coingecko(token_id):
         url = f"https://api.coingecko.com/api/v3/simple/price?ids={token_id}&vs_currencies=usd"
         response = requests.get(url)
         response.raise_for_status()
-        return {"price": response.json().get(token_id, {}).get("usd")}
+        price = response.json().get(token_id, {}).get("usd")
+        logger.info(f"Coingecko price for {token_id}: {price}")
+        return {"price": price} if price else None
     except requests.RequestException as e:
-        logger.error(f"Coingecko API Error: {e}")
+        logger.error(f"Coingecko API Error for {token_id}: {e}")
         return None
 
 # Fetch price from CryptoCompare
@@ -108,9 +123,11 @@ def fetch_price_cryptocompare(token_id):
         headers = {"authorization": f"Apikey {CRYPTOCOMPARE_API_KEY}"}
         response = requests.get(url, headers=headers)
         response.raise_for_status()
-        return {"price": response.json().get("USD")}
+        price = response.json().get("USD")
+        logger.info(f"CryptoCompare price for {token_id}: {price}")
+        return {"price": price} if price else None
     except requests.RequestException as e:
-        logger.error(f"CryptoCompare API Error: {e}")
+        logger.error(f"CryptoCompare API Error for {token_id}: {e}")
         return None
 
 # Fetch price from LiveCoinWatch
@@ -121,9 +138,11 @@ def fetch_price_livecoinwatch(token_id):
         payload = {"code": token_id.upper(), "currency": "USD", "meta": True}
         response = requests.post(url, json=payload, headers=headers)
         response.raise_for_status()
-        return {"price": response.json().get("rate")}
+        price = response.json().get("rate")
+        logger.info(f"LiveCoinWatch price for {token_id}: {price}")
+        return {"price": price} if price else None
     except requests.RequestException as e:
-        logger.error(f"LiveCoinWatch API Error: {e}")
+        logger.error(f"LiveCoinWatch API Error for {token_id}: {e}")
         return None
 
 # Add token to portfolio
@@ -198,7 +217,7 @@ def main():
                 if price_info and price_info.get("price"):
                     add_token(c, conn, token_name, quantity, price_info["price"])
                 else:
-                    st.error("Failed to fetch the token price. Please try again.")
+                    st.error(f"Failed to fetch the token price for {token_name}. Please check the token name or API connectivity.")
             else:
                 st.error("Invalid token selection.")
 
