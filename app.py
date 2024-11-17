@@ -40,44 +40,58 @@ cache = TTLCache(maxsize=100, ttl=300)  # Cache up to 100 items for 5 minutes
 # Database helper functions
 def enable_wal_mode():
     """Enable Write-Ahead Logging for better concurrency."""
-    conn = sqlite3.connect("portfolio.db", check_same_thread=False)
-    conn.execute("PRAGMA journal_mode=WAL;")
-    conn.close()
+    with db_lock:
+        conn = sqlite3.connect("portfolio.db", check_same_thread=False)
+        try:
+            conn.execute("PRAGMA journal_mode=WAL;")
+        except sqlite3.Error as e:
+            logger.error(f"Error enabling WAL mode: {e}")
+            st.error("Failed to enable WAL mode for the database.")
+        finally:
+            conn.close()
 
 def get_connection():
     """Get a new SQLite connection."""
-    return sqlite3.connect("portfolio.db", check_same_thread=False)
+    try:
+        return sqlite3.connect("portfolio.db", check_same_thread=False)
+    except sqlite3.Error as e:
+        logger.error(f"Error connecting to database: {e}")
+        st.error("Failed to connect to the database.")
+        return None
 
 def init_db():
     """Initialize database tables."""
-    try:
-        enable_wal_mode()
+    with db_lock:
         conn = get_connection()
-        c = conn.cursor()
-        c.execute("""
-            CREATE TABLE IF NOT EXISTS portfolio (
-                token TEXT PRIMARY KEY,
-                quantity REAL,
-                value REAL
-            )
-        """)
-        c.execute("""
-            CREATE TABLE IF NOT EXISTS transactions (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                token TEXT,
-                date TEXT,
-                type TEXT,
-                quantity REAL,
-                price REAL,
-                total_value REAL
-            )
-        """)
-        conn.commit()
-    except sqlite3.Error as e:
-        st.error(f"Database Initialization Error: {e}")
-        logger.error(f"Database Initialization Error: {e}")
-    finally:
-        conn.close()
+        if not conn:
+            return  # Exit early if connection failed
+        try:
+            c = conn.cursor()
+            c.execute("""
+                CREATE TABLE IF NOT EXISTS portfolio (
+                    token TEXT PRIMARY KEY,
+                    quantity REAL,
+                    value REAL
+                )
+            """)
+            c.execute("""
+                CREATE TABLE IF NOT EXISTS transactions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    token TEXT,
+                    date TEXT,
+                    type TEXT,
+                    quantity REAL,
+                    price REAL,
+                    total_value REAL
+                )
+            """)
+            conn.commit()
+            logger.info("Database initialized successfully.")
+        except sqlite3.Error as e:
+            logger.error(f"Database Initialization Error: {e}")
+            st.error("Database Initialization Error.")
+        finally:
+            conn.close()
 
 # Fetch prices
 def fetch_price(token_id):
@@ -91,7 +105,6 @@ def fetch_price(token_id):
         if price:
             cache[token_id] = price
             return price
-
     except Exception as e:
         logger.error(f"Error fetching price for {token_id}: {e}")
     return None
@@ -113,6 +126,8 @@ def add_token(token, quantity, price):
     """Add a token to the portfolio."""
     with db_lock:
         conn = get_connection()
+        if not conn:
+            return
         try:
             c = conn.cursor()
             c.execute("SELECT quantity FROM portfolio WHERE token = ?", (token,))
@@ -140,6 +155,8 @@ def delete_token(token):
     """Delete a token from the portfolio."""
     with db_lock:
         conn = get_connection()
+        if not conn:
+            return
         try:
             c = conn.cursor()
             c.execute("DELETE FROM portfolio WHERE token = ?", (token,))
@@ -155,6 +172,8 @@ def display_portfolio():
     """Display the current portfolio."""
     with db_lock:
         conn = get_connection()
+        if not conn:
+            return
         try:
             query = "SELECT * FROM portfolio"
             df = pd.read_sql_query(query, conn)
@@ -177,7 +196,12 @@ def display_portfolio():
 # Main application
 def main():
     st.title("🚀 Kaijasper Crypto Portfolio Manager 🚀")
-    init_db()
+
+    try:
+        init_db()
+    except Exception as e:
+        logger.error(f"Unexpected error during database initialization: {e}")
+        st.error("Failed to initialize the database.")
 
     st.subheader("Portfolio Management")
     display_portfolio()
@@ -195,11 +219,13 @@ def main():
     st.subheader("Delete a Token from Portfolio")
     with db_lock:
         conn = get_connection()
-        try:
-            c = conn.cursor()
-            token_list = [row[0] for row in c.execute("SELECT token FROM portfolio")]
-        finally:
-            conn.close()
+        token_list = []
+        if conn:
+            try:
+                c = conn.cursor()
+                token_list = [row[0] for row in c.execute("SELECT token FROM portfolio")]
+            finally:
+                conn.close()
     delete_token_name = st.selectbox("Select Token to Delete", options=token_list, key="delete_token")
     if st.button("Delete Token"):
         delete_token(delete_token_name)
