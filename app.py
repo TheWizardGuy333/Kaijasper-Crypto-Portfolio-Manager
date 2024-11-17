@@ -22,21 +22,15 @@ except ModuleNotFoundError:
 logging.basicConfig(filename="app.log", level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
-# Load environment variables from .env file
-if not os.path.exists(".env"):
-    st.error("The .env file is missing!")
-    sys.exit("Error: Missing .env file.")
-
+# Load environment variables
 load_dotenv()
 
-# Fetching API keys from environment variables
 CRYPTOCOMPARE_API_KEY = os.getenv("CRYPTOCOMPARE_API_KEY")
 LIVECOINWATCH_API_KEY = os.getenv("LIVECOINWATCH_API_KEY")
 
 # Notify if API keys are missing
 if not CRYPTOCOMPARE_API_KEY or not LIVECOINWATCH_API_KEY:
-    st.error("API keys are missing! Please provide valid keys in your .env file.")
-    sys.exit("Error: Missing API keys.")
+    st.warning("Some API keys are missing. Certain functionalities may not work.")
 
 # Initialize token list (dynamic tokens added via user input)
 TOKENS = {
@@ -146,6 +140,61 @@ def add_new_token(token_name):
     except requests.RequestException as e:
         st.error(f"Failed to add token '{token_name}': {e}")
         logger.error(f"Error adding token '{token_name}': {e}")
+
+# Display historical price trends
+def display_historical_prices(token_id, days=30, currency="usd"):
+    try:
+        url = f"https://api.coingecko.com/api/v3/coins/{token_id}/market_chart?vs_currency={currency}&days={days}"
+        response = requests.get(url)
+        response.raise_for_status()
+        data = response.json()["prices"]
+        df = pd.DataFrame(data, columns=["Timestamp", "Price"])
+        df["Timestamp"] = pd.to_datetime(df["Timestamp"], unit="ms")
+        st.write(f"### Historical Prices for {token_id.capitalize()} (Last {days} Days)")
+        fig = px.line(df, x="Timestamp", y="Price", title=f"Price Trend for {token_id.capitalize()}")
+        st.plotly_chart(fig)
+    except requests.RequestException as e:
+        st.error(f"Failed to fetch historical prices: {e}")
+        logger.error(f"Error fetching historical prices: {e}")
+
+# Set price alerts
+def manage_price_alerts(c, conn):
+    st.subheader("Manage Price Alerts")
+    token_name = st.selectbox("Select Token", options=list(TOKENS.keys()), key="alert_token")
+    threshold = st.number_input("Enter Price Threshold", min_value=0.0, key="alert_threshold")
+    direction = st.selectbox("Direction", options=["Above", "Below"], key="alert_direction")
+    if st.button("Set Alert", key="set_alert"):
+        try:
+            c.execute("INSERT OR REPLACE INTO price_alerts (token, threshold, direction) VALUES (?, ?, ?)",
+                      (token_name, threshold, direction))
+            conn.commit()
+            st.success(f"Price alert set for {token_name} at {direction.lower()} ${threshold:.2f}.")
+        except sqlite3.Error as e:
+            st.error(f"Error setting price alert: {e}")
+            logger.error(f"Error setting price alert: {e}")
+# Check and trigger price alerts
+def check_price_alerts(c):
+    try:
+        c.execute("SELECT token, threshold, direction FROM price_alerts")
+        alerts = c.fetchall()
+        triggered_alerts = []
+        for token, threshold, direction in alerts:
+            token_id = TOKENS.get(token)
+            if not token_id:
+                continue
+            price_info = fetch_price(token_id)
+            if not price_info or not price_info.get("price"):
+                continue
+            current_price = price_info["price"]
+            if (direction == "Above" and current_price > threshold) or (direction == "Below" and current_price < threshold):
+                triggered_alerts.append((token, current_price, threshold, direction))
+        if triggered_alerts:
+            for alert in triggered_alerts:
+                token, current_price, threshold, direction = alert
+                st.warning(f"🚨 Alert: {token} is now {direction.lower()} ${threshold:.2f}. Current price: ${current_price:.2f}.")
+    except sqlite3.Error as e:
+        st.error(f"Error checking price alerts: {e}")
+        logger.error(f"Error checking price alerts: {e}")
 
 # Main app
 def main():
