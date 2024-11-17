@@ -81,7 +81,7 @@ def init_db():
 # Caching for API responses
 cache = TTLCache(maxsize=100, ttl=300)  # Cache up to 100 items for 5 minutes
 
-# Fetch price with fallback mechanisms
+# Fetch price with fallback mechanisms and detailed logging
 def fetch_price(token_id):
     try:
         if token_id in cache:
@@ -89,13 +89,30 @@ def fetch_price(token_id):
             return cache[token_id]
         
         logger.info(f"Fetching price for token: {token_id}")
-        price = (fetch_price_coingecko(token_id) or 
-                 fetch_price_cryptocompare(token_id) or 
-                 fetch_price_livecoinwatch(token_id))
+        
+        # Attempt to fetch price from multiple sources and log which source failed
+        price = None
+        
+        # Try Coingecko
+        price = fetch_price_coingecko(token_id)
+        if not price:
+            logger.warning(f"Failed to fetch price for {token_id} from Coingecko.")
+        
+        # Try CryptoCompare if Coingecko fails
+        if not price:
+            price = fetch_price_cryptocompare(token_id)
+            if not price:
+                logger.warning(f"Failed to fetch price for {token_id} from CryptoCompare.")
+        
+        # Try LiveCoinWatch if both previous APIs fail
+        if not price:
+            price = fetch_price_livecoinwatch(token_id)
+            if not price:
+                logger.warning(f"Failed to fetch price for {token_id} from LiveCoinWatch.")
         
         if price:
             cache[token_id] = price
-            logger.info(f"Price fetched successfully: {price}")
+            logger.info(f"Price fetched successfully for {token_id}: {price}")
         else:
             logger.warning(f"Price not found for token: {token_id}")
         return price
@@ -210,23 +227,20 @@ def main():
         st.subheader("Add a Token to Portfolio")
         token_name = st.selectbox("Select Token", options=list(TOKENS.keys()), key="add_token_portfolio")
         quantity = st.number_input("Enter Quantity", min_value=0.0, step=0.01, key="token_quantity")
-        if st.button("Add Token", key="add_token"):
-            token_id = TOKENS.get(token_name)
-            if token_id:
-                price_info = fetch_price(token_id)
-                if price_info and price_info.get("price"):
-                    add_token(c, conn, token_name, quantity, price_info["price"])
-                else:
-                    st.error(f"Failed to fetch the token price for {token_name}. Please check the token name or API connectivity.")
+        if st.button("Add Token"):
+            price = fetch_price(TOKENS[token_name])
+            if price:
+                add_token(c, conn, token_name, quantity, price["price"])
             else:
-                st.error(f"Token {token_name} is not supported.")
-
+                st.error(f"Could not fetch the price for {token_name}.")
+                
         # Delete Token
         st.subheader("Delete a Token from Portfolio")
-        tokens_in_portfolio = [row[0] for row in c.execute("SELECT token FROM portfolio").fetchall()]
-        token_to_delete = st.selectbox("Select Token to Delete", options=tokens_in_portfolio, key="delete_token")
-        if st.button("Delete Token", key="delete_token_btn"):
-            delete_token(c, conn, token_to_delete)
+        delete_token_name = st.selectbox("Select Token to Delete", options=[row[0] for row in c.execute("SELECT token FROM portfolio")], key="delete_token")
+        if st.button("Delete Token"):
+            delete_token(c, conn, delete_token_name)
+    else:
+        st.error("Failed to initialize the database.")
 
 if __name__ == "__main__":
     main()
