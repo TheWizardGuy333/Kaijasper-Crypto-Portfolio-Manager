@@ -138,17 +138,22 @@ def add_token(conn, token, quantity, price):
         c = conn.cursor()
         c.execute("SELECT quantity FROM portfolio WHERE token = ?", (token,))
         existing = c.fetchone()
+
+        total_value = quantity * price  # Initialize total_value before use
+
         if existing:
             new_quantity = existing[0] + quantity
             new_value = new_quantity * price
             c.execute("UPDATE portfolio SET quantity = ?, value = ? WHERE token = ?", (new_quantity, new_value, token))
         else:
-            total_value = quantity * price
             c.execute("INSERT INTO portfolio (token, quantity, value) VALUES (?, ?, ?)", (token, quantity, total_value))
+
+        # Record the transaction with the calculated total_value
         c.execute("""
             INSERT INTO transactions (token, date, type, quantity, price, total_value)
             VALUES (?, ?, ?, ?, ?, ?)
         """, (token, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "Buy", quantity, price, total_value))
+
         conn.commit()
         st.success(f"Added {quantity} of {token} to portfolio at ${price:.6f} each.")
     except sqlite3.Error as e:
