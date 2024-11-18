@@ -10,7 +10,6 @@ import logging
 import plotly.express as px
 import threading
 import time
-import webbrowser  # To handle external link opening
 
 # Load environment variables
 load_dotenv()
@@ -239,8 +238,7 @@ def main():
         delete_token(delete_token_name)
 
     st.subheader("Explore Cryptocurrency on Coinbase")
-    if st.button("Visit Coinbase Explore"):
-        webbrowser.open_new_tab("https://www.coinbase.com/explore")
+    st.markdown("[Visit Coinbase Explore](https://www.coinbase.com/explore)", unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
