@@ -225,4 +225,4 @@ def main():
 
     conn.close()
 
-if __name__ == "__main
+if __name__ == "__main__":
