@@ -259,7 +259,7 @@ def main():
     if choice == "Home":
         st.subheader("Kaijasper Crypto Portfolio Manager!")
         st.write(
-            "This app will help me manage my crypto portfolio and track prices of my favorite tokens in real time." It will make investing easy and manageable
+            "This app will help me manage my investing portfolio and track prices of my favorite tokens in real time and make investing easy and manageable."
         )
 
     elif choice == "Manage Portfolio":
