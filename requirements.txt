@@ -4,3 +4,4 @@ streamlit
 python-dotenv
 cachetools
 plotly
+beautifulsoup4
