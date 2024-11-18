@@ -6,6 +6,10 @@ import plotly.express as px
 import streamlit as st
 from datetime import datetime
 from dotenv import load_dotenv
+import logging  # For logging errors and events
+
+# Configure logging
+logging.basicConfig(level=logging.INFO, filename="app.log", format="%(asctime)s - %(levelname)s - %(message)s")
 
 # Load environment variables from .env file
 load_dotenv()
@@ -18,6 +22,7 @@ COINGECKO_API_KEY = os.getenv("COINGECKO_API_KEY")
 # Check if all API keys are loaded properly
 if not CRYPTOCOMPARE_API_KEY or not LIVECOINWATCH_API_KEY or not COINGECKO_API_KEY:
     st.error("API keys are missing! Check the .env file.")
+    logging.error("API keys are missing! Check the .env file.")
     exit()
 
 # Token List (Including Bonfida)
@@ -99,9 +104,13 @@ def init_db():
 def fetch_price(token_id):
     price = fetch_price_coingecko(token_id)
     if price is None:
+        logging.warning(f"Failed to fetch price from CoinGecko for {token_id}, trying CryptoCompare.")
         price = fetch_price_cryptocompare(token_id)
     if price is None:
+        logging.warning(f"Failed to fetch price from CryptoCompare for {token_id}, trying LiveCoinWatch.")
         price = fetch_price_livecoinwatch(token_id)
+    if price is None:
+        logging.error(f"Failed to fetch price for {token_id} from all sources.")
     return price
 
 def fetch_price_coingecko(token_id):
@@ -114,9 +123,10 @@ def fetch_price_coingecko(token_id):
             "price": data.get("usd"),
             "market_cap": data.get("usd_market_cap"),
             "volume": data.get("usd_24h_vol"),
-            "change_24h": data.get("usd_24h_change", "N/A")  # Default to "N/A" if not found
+            "change_24h": data.get("usd_24h_change", 0)
         }
-    except requests.RequestException:
+    except requests.RequestException as e:
+        logging.error(f"Error fetching price from CoinGecko for {token_id}: {e}")
         return None
 
 def fetch_price_cryptocompare(token_id):
@@ -126,7 +136,8 @@ def fetch_price_cryptocompare(token_id):
         response = requests.get(url, headers=headers)
         response.raise_for_status()
         return {"price": response.json().get("USD")}
-    except requests.RequestException:
+    except requests.RequestException as e:
+        logging.error(f"Error fetching price from CryptoCompare for {token_id}: {e}")
         return None
 
 def fetch_price_livecoinwatch(token_id):
@@ -138,11 +149,16 @@ def fetch_price_livecoinwatch(token_id):
         response.raise_for_status()
         data = response.json()
         return {"price": data.get("rate")}
-    except requests.RequestException:
+    except requests.RequestException as e:
+        logging.error(f"Error fetching price from LiveCoinWatch for {token_id}: {e}")
         return None
 
-# Add token to portfolio
+# Add token to portfolio with validation
 def add_token(c, conn, token, quantity, price):
+    if quantity <= 0:
+        st.error("Quantity must be greater than 0.")
+        logging.warning("Attempted to add token with non-positive quantity.")
+        return
     total_value = quantity * price
     c.execute("INSERT OR REPLACE INTO portfolio (token, quantity, value) VALUES (?, ?, ?)",
               (token, quantity, total_value))
@@ -152,45 +168,24 @@ def add_token(c, conn, token, quantity, price):
     """, (token, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "Buy", quantity, price, total_value))
     conn.commit()
 
-# Display portfolio
-def display_portfolio(c):
-    c.execute("SELECT * FROM portfolio")
-    data = c.fetchall()
-    if not data:
-        st.write("Your portfolio is empty!")
-        return
-    df = pd.DataFrame(data, columns=["Token", "Quantity", "Value"])
-    total_value = df["Value"].sum()
-    st.write("### Your Portfolio")
-    st.write(df)
-    st.write(f"**Total Portfolio Value:** ${total_value:,.2f}")
-
-    # Optional: Show portfolio allocation chart
-    if st.checkbox("Show Portfolio Allocation Chart"):
-        fig = px.pie(df, values="Value", names="Token", title="Portfolio Allocation")
-        st.plotly_chart(fig)
-
-# Manage and display watchlist with live prices and changes
+# Manage watchlist
 def manage_watchlist(c, conn):
     st.subheader("Manage Watchlist")
     token_name = st.selectbox("Select Token to Add/Remove", options=list(TOKENS.keys()))
     col1, col2 = st.columns(2)
 
-    # Add to watchlist
     with col1:
         if st.button("Add to Watchlist"):
             c.execute("INSERT OR IGNORE INTO watchlist (token) VALUES (?)", (token_name,))
             conn.commit()
             st.success(f"{token_name} added to your watchlist.")
 
-    # Remove from watchlist
     with col2:
         if st.button("Remove from Watchlist"):
             c.execute("DELETE FROM watchlist WHERE token = ?", (token_name,))
             conn.commit()
             st.success(f"{token_name} removed from your watchlist.")
 
-    # Display the watchlist with live prices
     st.write("### Your Watchlist")
     c.execute("SELECT token FROM watchlist")
     tokens = c.fetchall()
@@ -203,74 +198,56 @@ def manage_watchlist(c, conn):
             if token_id:
                 price_info = fetch_price(token_id)
                 if price_info:
-                    price = price_info["price"]
-                    change_24h = price_info["change_24h"]  # Safely get the value here
+                    price = price_info.get("price", "N/A")
+                    change_24h = price_info.get("change_24h", "N/A")
                     watchlist_data.append({"Token": token_name, "Price (USD)": price, "24h Change (%)": change_24h})
                 else:
                     watchlist_data.append({"Token": token_name, "Price (USD)": "N/A", "24h Change (%)": "N/A"})
             else:
                 watchlist_data.append({"Token": token_name, "Price (USD)": "N/A", "24h Change (%)": "N/A"})
 
-        # Create a DataFrame for display
         df_watchlist = pd.DataFrame(watchlist_data)
         st.write(df_watchlist)
     else:
         st.write("Your watchlist is empty.")
 
-      # Clear entire watchlist
     if st.button("Clear Watchlist"):
         c.execute("DELETE FROM watchlist")
         conn.commit()
         st.success("Watchlist cleared.")
 
-# Portfolio Management Interface
-def manage_portfolio(c, conn):
-    st.subheader("Manage Portfolio")
-
-    # Add Token to Portfolio
-    token_name = st.selectbox("Select Token to Add", options=list(TOKENS.keys()))
-    quantity = st.number_input("Enter Quantity to Add", min_value=0.0, format="%.4f")
-    col1, col2 = st.columns(2)
-
-    with col1:
-        if st.button("Add to Portfolio"):
-            token_id = TOKENS[token_name]
-            price_info = fetch_price(token_id)
-            if price_info:
-                price = price_info["price"]
-                add_token(c, conn, token_name, quantity, price)
-                st.success(f"Added {quantity} of {token_name} to your portfolio at ${price:.2f} per token.")
-            else:
-                st.error(f"Could not fetch price for {token_name}. Please try again later.")
-
-    # Display Portfolio
-    display_portfolio(c)
-
 # Main app layout
 def main():
     st.title("Kaijasper Crypto Portfolio Manager")
-    
+
     conn, c = init_db()
 
-    # Sidebar for navigation
-    menu = ["Home", "Manage Portfolio", "Manage Watchlist"]
+    # Add "Visit Coinbase" to the dropdown menu
+    menu = ["Home", "Manage Portfolio", "Manage Watchlist", "Visit Coinbase"]
     choice = st.sidebar.selectbox("Select an option", menu)
 
     if choice == "Home":
-        st.subheader("Kaijasper Crypto Portfolio Manager!")
-        st.write(
-            "This app will help me manage my investing portfolio and track prices of my favorite tokens in real time and make investing easy and manageable."
-        )
-
+        st.subheader("Welcome to Kaijasper Crypto Portfolio Manager!")
+        st.write("This app helps you manage your crypto portfolio and watchlist in real-time.")
     elif choice == "Manage Portfolio":
-        manage_portfolio(c, conn)
-
+        token_name = st.selectbox("Select Token to Add", options=list(TOKENS.keys()))
+        quantity = st.number_input("Enter Quantity to Add", min_value=0.0, format="%.4f")
+        if st.button("Add to Portfolio"):
+            token_id = TOKENS[token_name]
+            price_info = fetch_price(token_id)
+            if price_info and "price" in price_info:
+                price = price_info["price"]
+                add_token(c, conn, token_name, quantity, price)
+                st.success(f"Added {quantity} of {token_name} to your portfolio at ${price:.2f}.")
+            else:
+                st.error(f"Could not fetch price for {token_name}.")
     elif choice == "Manage Watchlist":
         manage_watchlist(c, conn)
+    elif choice == "Visit Coinbase":
+        st.subheader("Visit Coinbase")
+        st.markdown("[Click here to explore Coinbase](https://www.coinbase.com/explore)", unsafe_allow_html=True)
 
-    # Close DB connection
     conn.close()
 
 if __name__ == "__main__":
     main()
-
