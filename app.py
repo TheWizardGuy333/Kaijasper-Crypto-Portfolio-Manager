@@ -2,229 +2,275 @@ import os
 import pandas as pd
 import requests
 import sqlite3
+import plotly.express as px
 import streamlit as st
 from datetime import datetime
 from dotenv import load_dotenv
-from cachetools import TTLCache
-import logging
-import plotly.express as px
 
-# Load environment variables
+# Load environment variables from .env file
 load_dotenv()
 
-# API Keys from .env
+# Fetch API keys from environment variables
 CRYPTOCOMPARE_API_KEY = os.getenv("CRYPTOCOMPARE_API_KEY")
 LIVECOINWATCH_API_KEY = os.getenv("LIVECOINWATCH_API_KEY")
-COINGECKO_API_KEY = os.getenv("COINGECKO_API_KEY")  # Add CoinGecko API key
+COINGECKO_API_KEY = os.getenv("COINGECKO_API_KEY")
 
-if not CRYPTOCOMPARE_API_KEY or not LIVECOINWATCH_API_KEY:
-    raise ValueError("API keys are missing. Check your .env file!")
+# Check if all API keys are loaded properly
+if not CRYPTOCOMPARE_API_KEY or not LIVECOINWATCH_API_KEY or not COINGECKO_API_KEY:
+    st.error("API keys are missing! Check the .env file.")
+    exit()
 
-# Setup logging
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
-logger = logging.getLogger(__name__)
-
-# Token list
+# Token List (Including Bonfida)
 TOKENS = {
-    "BONK": "BONK",
+    "BONK": "bonk",
     "Dogecoin": "dogecoin",
     "Shiba Inu": "shiba-inu",
+    "Floki Inu": "floki-inu",
     "Baby Doge": "baby-doge-coin",
+    "Kishu Inu": "kishu-inu",
     "Saitama": "saitama",
     "SafeMoon": "safemoon",
+    "EverGrow Coin": "evergrow-coin",
+    "Akita Inu": "akita-inu",
     "Volt Inu": "volt-inu",
     "CateCoin": "catecoin",
     "Shiba Predator": "shiba-predator",
     "DogeBonk": "dogebonk",
     "Flokinomics": "flokinomics",
     "StarLink": "starlink",
+    "Elon Musk Coin": "elon-musk-coin",
     "DogeGF": "dogegf",
+    "Ryoshi Vision": "ryoshi-vision",
     "Shibaverse": "shibaverse",
     "FEG Token": "feg-token",
     "Dogelon Mars": "dogelon-mars",
     "BabyFloki": "babyfloki",
     "PolyDoge": "polydoge",
+    "TAMA": "tamadoge",
+    "SpookyShiba": "spookyshiba",
     "Moonriver": "moonriver",
     "MetaHero": "metahero",
     "BabyDogeZilla": "babydogezilla",
+    "NanoDogeCoin": "nanodogecoin",
     "BabyShark": "babyshark",
     "Wakanda Inu": "wakanda-inu",
     "King Shiba": "king-shiba",
     "PepeCoin": "pepecoin",
     "Pitbull": "pitbull",
+    "MoonDoge": "moondoge",
+    "CryptoZilla": "cryptozilla",
     "MiniDoge": "minidoge",
-    "Baby Bonk": "BABY BONK",
+    "ZillaDoge": "zilladoge",
+    "DogeFloki": "dogefloki",
+    "Bonfida": "bonfida"
 }
 
+# Initialize SQLite database
+def init_db():
+    conn = sqlite3.connect("portfolio.db")
+    c = conn.cursor()
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS portfolio (
+            token TEXT PRIMARY KEY,
+            quantity REAL,
+            value REAL
+        )
+    """)
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS transactions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            token TEXT,
+            date TEXT,
+            type TEXT,
+            quantity REAL,
+            price REAL,
+            total_value REAL
+        )
+    """)
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS watchlist (
+            token TEXT PRIMARY KEY
+        )
+    """)
+    conn.commit()
+    return conn, c
 
-def connect_to_db():
-    """Connect to the SQLite database."""
-    try:
-        conn = sqlite3.connect("portfolio.db")
-        return conn
-    except sqlite3.Error as e:
-        logger.error(f"Error connecting to database: {e}")
-        st.error("Failed to connect to the database.")
-        return None
-
-
-def init_db(conn):
-    """Initialize database tables if they don't exist."""
-    try:
-        c = conn.cursor()
-        c.execute("""
-            CREATE TABLE IF NOT EXISTS portfolio (
-                token TEXT PRIMARY KEY,
-                quantity REAL,
-                value REAL
-            )
-        """)
-        c.execute("""
-            CREATE TABLE IF NOT EXISTS transactions (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                token TEXT,
-                date TEXT,
-                type TEXT,
-                quantity REAL,
-                price REAL,
-                total_value REAL
-            )
-        """)
-        conn.commit()
-        logger.info("Database initialized successfully.")
-    except sqlite3.Error as e:
-        logger.error(f"Database Initialization Error: {e}")
-        st.error("Database Initialization Error.")
-
-
-# Fetch prices
+# Fetch price with fallback mechanism
 def fetch_price(token_id):
-    """Fetch the price of a token using multiple APIs."""
-    cache = TTLCache(maxsize=100, ttl=300)  # Create a new cache instance per call
-    try:
-        if token_id in cache:
-            return cache[token_id]
-
-        # Try CoinGecko
-        price = fetch_price_coingecko(token_id)
-        if price:
-            cache[token_id] = price
-            return price
-    except Exception as e:
-        logger.error(f"Error fetching price for {token_id}: {e}")
-        st.error(f"Failed to fetch price for {token_id}. Please try again later.")
-    return None
+    price = fetch_price_coingecko(token_id)
+    if price is None:
+        price = fetch_price_cryptocompare(token_id)
+    if price is None:
+        price = fetch_price_livecoinwatch(token_id)
+    return price
 
 def fetch_price_coingecko(token_id):
-    """Fetch price from CoinGecko with basic rate-limiting."""
     try:
-        url = f"https://api.coingecko.com/api/v3/simple/price?ids={token_id}&vs_currencies=usd"
-        headers = {
-            "Authorization": f"Bearer {COINGECKO_API_KEY}"  # Pass API key in the header if needed
-        }
-        response = requests.get(url, headers=headers)
+        url = f"https://api.coingecko.com/api/v3/simple/price?ids={token_id}&vs_currencies=usd&include_market_cap=true&include_24hr_change=true&include_24hr_vol=true"
+        response = requests.get(url)
         response.raise_for_status()
-        price = response.json().get(token_id, {}).get("usd")
-        return {"price": price} if price else None
-    except requests.RequestException as e:
-        logger.error(f"CoinGecko API Error for {token_id}: {e}")
-        st.error(f"CoinGecko API error. Please try again later.")
+        data = response.json().get(token_id, {})
+        return {
+            "price": data.get("usd"),
+            "market_cap": data.get("usd_market_cap"),
+            "volume": data.get("usd_24h_vol"),
+            "change_24h": data.get("usd_24h_change", "N/A")  # Default to "N/A" if not found
+        }
+    except requests.RequestException:
         return None
 
-# Portfolio operations
-def add_token(conn, token, quantity, price):
-    """Add a token to the portfolio."""
+def fetch_price_cryptocompare(token_id):
     try:
-        c = conn.cursor()
-        c.execute("SELECT quantity FROM portfolio WHERE token = ?", (token,))
-        existing = c.fetchone()
+        url = f"https://min-api.cryptocompare.com/data/price?fsym={token_id.upper()}&tsyms=USD"
+        headers = {"authorization": f"Apikey {CRYPTOCOMPARE_API_KEY}"}
+        response = requests.get(url, headers=headers)
+        response.raise_for_status()
+        return {"price": response.json().get("USD")}
+    except requests.RequestException:
+        return None
 
-        total_value = quantity * price  # Initialize total_value before use
-
-        if existing:
-            new_quantity = existing[0] + quantity
-            new_value = new_quantity * price
-            c.execute("UPDATE portfolio SET quantity = ?, value = ? WHERE token = ?", (new_quantity, new_value, token))
-        else:
-            c.execute("INSERT INTO portfolio (token, quantity, value) VALUES (?, ?, ?)", (token, quantity, total_value))
-
-        # Record the transaction with the calculated total_value
-        c.execute("""
-            INSERT INTO transactions (token, date, type, quantity, price, total_value)
-            VALUES (?, ?, ?, ?, ?, ?)
-        """, (token, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "Buy", quantity, price, total_value))
-
-        conn.commit()
-        st.success(f"Added {quantity} of {token} to portfolio at ${price:.6f} each.")
-    except sqlite3.Error as e:
-        st.error(f"Database Error: {e}")
-        logger.error(f"Database Error: {e}")
-
-def delete_token(conn, token):
-    """Delete a token from the portfolio."""
+def fetch_price_livecoinwatch(token_id):
     try:
-        c = conn.cursor()
-        c.execute("DELETE FROM portfolio WHERE token = ?", (token,))
-        conn.commit()
-        st.success(f"{token} has been removed from your portfolio.")
-    except sqlite3.Error as e:
-        st.error(f"Database Error: {e}")
-        logger.error(f"Database Error: {e}")
+        url = "https://api.livecoinwatch.com/coins/single"
+        headers = {"x-api-key": LIVECOINWATCH_API_KEY}
+        payload = {"code": token_id.upper(), "currency": "USD", "meta": True}
+        response = requests.post(url, json=payload, headers=headers)
+        response.raise_for_status()
+        data = response.json()
+        return {"price": data.get("rate")}
+    except requests.RequestException:
+        return None
 
-def display_portfolio(conn):
-    """Display the current portfolio."""
-    try:
-        query = "SELECT * FROM portfolio"
-        df = pd.read_sql_query(query, conn)
-        if df.empty:
-            st.write("Your portfolio is empty!")
-            return
-        total_value = df["value"].sum()
-        st.write("### Your Portfolio")
-        st.write(df)
-        st.write(f"**Total Portfolio Value:** ${total_value:,.2f}")
-        if st.checkbox("Show Portfolio Allocation Chart", key="portfolio_chart"):
-            fig = px.pie(df, values="value", names="token", title="Portfolio Allocation")
-            st.plotly_chart(fig)
-    except Exception as e:
-        st.error(f"Error displaying portfolio: {e}")
-        logger.error(f"Error displaying portfolio: {e}")
+# Add token to portfolio
+def add_token(c, conn, token, quantity, price):
+    total_value = quantity * price
+    c.execute("INSERT OR REPLACE INTO portfolio (token, quantity, value) VALUES (?, ?, ?)",
+              (token, quantity, total_value))
+    c.execute("""
+        INSERT INTO transactions (token, date, type, quantity, price, total_value)
+        VALUES (?, ?, ?, ?, ?, ?)
+    """, (token, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "Buy", quantity, price, total_value))
+    conn.commit()
 
-# Main application
-def main():
-    st.title("🚀 Kaijasper Crypto Portfolio Manager 🚀")
-
-    conn = connect_to_db()
-    if not conn:
+# Display portfolio
+def display_portfolio(c):
+    c.execute("SELECT * FROM portfolio")
+    data = c.fetchall()
+    if not data:
+        st.write("Your portfolio is empty!")
         return
+    df = pd.DataFrame(data, columns=["Token", "Quantity", "Value"])
+    total_value = df["Value"].sum()
+    st.write("### Your Portfolio")
+    st.write(df)
+    st.write(f"**Total Portfolio Value:** ${total_value:,.2f}")
 
-    init_db(conn)
+    # Optional: Show portfolio allocation chart
+    if st.checkbox("Show Portfolio Allocation Chart"):
+        fig = px.pie(df, values="Value", names="Token", title="Portfolio Allocation")
+        st.plotly_chart(fig)
 
-    st.subheader("Portfolio Management")
-    display_portfolio(conn)
+# Manage and display watchlist with live prices and changes
+def manage_watchlist(c, conn):
+    st.subheader("Manage Watchlist")
+    token_name = st.selectbox("Select Token to Add/Remove", options=list(TOKENS.keys()))
+    col1, col2 = st.columns(2)
 
-    st.subheader("Add a Token to Portfolio")
-    token_name = st.selectbox("Select Token", options=list(TOKENS.keys()), key="add_token_portfolio")
-    quantity = st.number_input("Enter Quantity", min_value=0.0, step=0.01, key="token_quantity")
-    if st.button("Add Token"):
-        price = fetch_price(TOKENS[token_name])
-        if price:
-            add_token(conn, token_name, quantity, price["price"])
-        else:
-            st.error(f"Could not fetch the price for {token_name}.")
+    # Add to watchlist
+    with col1:
+        if st.button("Add to Watchlist"):
+            c.execute("INSERT OR IGNORE INTO watchlist (token) VALUES (?)", (token_name,))
+            conn.commit()
+            st.success(f"{token_name} added to your watchlist.")
 
-    st.subheader("Delete a Token from Portfolio")
-    with conn:
-        c = conn.cursor()
-        token_list = [row[0] for row in c.execute("SELECT token FROM portfolio")]
-    delete_token_name = st.selectbox("Select Token to Delete", options=token_list, key="delete_token")
-    if st.button("Delete Token"):
-        delete_token(conn, delete_token_name)
+    # Remove from watchlist
+    with col2:
+        if st.button("Remove from Watchlist"):
+            c.execute("DELETE FROM watchlist WHERE token = ?", (token_name,))
+            conn.commit()
+            st.success(f"{token_name} removed from your watchlist.")
 
-    st.subheader("Explore Cryptocurrency on Coinbase")
-    st.markdown("[Visit Coinbase Explore](https://www.coinbase.com/explore)", unsafe_allow_html=True)
+    # Display the watchlist with live prices
+    st.write("### Your Watchlist")
+    c.execute("SELECT token FROM watchlist")
+    tokens = c.fetchall()
 
-    conn.close()  # Close the connection at the end of the app
+    if tokens:
+        watchlist_data = []
+        for token in tokens:
+            token_name = token[0]
+            token_id = TOKENS.get(token_name)
+            if token_id:
+                price_info = fetch_price(token_id)
+                if price_info:
+                    price = price_info["price"]
+                    change_24h = price_info["change_24h"]  # Safely get the value here
+                    watchlist_data.append({"Token": token_name, "Price (USD)": price, "24h Change (%)": change_24h})
+                else:
+                    watchlist_data.append({"Token": token_name, "Price (USD)": "N/A", "24h Change (%)": "N/A"})
+            else:
+                watchlist_data.append({"Token": token_name, "Price (USD)": "N/A", "24h Change (%)": "N/A"})
+
+        # Create a DataFrame for display
+        df_watchlist = pd.DataFrame(watchlist_data)
+        st.write(df_watchlist)
+    else:
+        st.write("Your watchlist is empty.")
+
+      # Clear entire watchlist
+    if st.button("Clear Watchlist"):
+        c.execute("DELETE FROM watchlist")
+        conn.commit()
+        st.success("Watchlist cleared.")
+
+# Portfolio Management Interface
+def manage_portfolio(c, conn):
+    st.subheader("Manage Portfolio")
+
+    # Add Token to Portfolio
+    token_name = st.selectbox("Select Token to Add", options=list(TOKENS.keys()))
+    quantity = st.number_input("Enter Quantity to Add", min_value=0.0, format="%.4f")
+    col1, col2 = st.columns(2)
+
+    with col1:
+        if st.button("Add to Portfolio"):
+            token_id = TOKENS[token_name]
+            price_info = fetch_price(token_id)
+            if price_info:
+                price = price_info["price"]
+                add_token(c, conn, token_name, quantity, price)
+                st.success(f"Added {quantity} of {token_name} to your portfolio at ${price:.2f} per token.")
+            else:
+                st.error(f"Could not fetch price for {token_name}. Please try again later.")
+
+    # Display Portfolio
+    display_portfolio(c)
+
+# Main app layout
+def main():
+    st.title("Kaijasper Crypto Portfolio Manager")
+    
+    conn, c = init_db()
+
+    # Sidebar for navigation
+    menu = ["Home", "Manage Portfolio", "Manage Watchlist"]
+    choice = st.sidebar.selectbox("Select an option", menu)
+
+    if choice == "Home":
+        st.subheader("Kaijasper Crypto Portfolio Manager!")
+        st.write(
+            "This app will help me manage my crypto portfolio and track prices of my favorite tokens in real time." It will make investing easy and manageable
+        )
+
+    elif choice == "Manage Portfolio":
+        manage_portfolio(c, conn)
+
+    elif choice == "Manage Watchlist":
+        manage_watchlist(c, conn)
+
+    # Close DB connection
+    conn.close()
 
 if __name__ == "__main__":
     main()
+
