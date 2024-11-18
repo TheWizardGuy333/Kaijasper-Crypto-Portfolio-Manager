@@ -9,6 +9,8 @@ from cachetools import TTLCache
 import logging
 import plotly.express as px
 import threading
+import time
+import webbrowser  # To handle external link opening
 
 # Load environment variables
 load_dotenv()
@@ -16,6 +18,9 @@ load_dotenv()
 # API Keys from .env
 CRYPTOCOMPARE_API_KEY = os.getenv("CRYPTOCOMPARE_API_KEY")
 LIVECOINWATCH_API_KEY = os.getenv("LIVECOINWATCH_API_KEY")
+
+if not CRYPTOCOMPARE_API_KEY or not LIVECOINWATCH_API_KEY:
+    raise ValueError("API keys are missing. Check your .env file!")
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -31,7 +36,6 @@ TOKENS = {
     "Shiba Inu": "shiba-inu",
     "Baby Doge": "baby-doge-coin",
     "Kishu Inu": "kishu-inu",
-    # Add other tokens as needed
 }
 
 # Cache for API responses
@@ -110,10 +114,14 @@ def fetch_price(token_id):
     return None
 
 def fetch_price_coingecko(token_id):
-    """Fetch price from CoinGecko."""
+    """Fetch price from CoinGecko with basic rate-limiting."""
     try:
         url = f"https://api.coingecko.com/api/v3/simple/price?ids={token_id}&vs_currencies=usd"
         response = requests.get(url)
+        if response.status_code == 429:
+            logger.warning(f"Rate limit hit for {token_id}. Retrying after 1 second.")
+            time.sleep(1)  # Wait before retrying
+            response = requests.get(url)
         response.raise_for_status()
         price = response.json().get(token_id, {}).get("usd")
         return {"price": price} if price else None
@@ -229,6 +237,10 @@ def main():
     delete_token_name = st.selectbox("Select Token to Delete", options=token_list, key="delete_token")
     if st.button("Delete Token"):
         delete_token(delete_token_name)
+
+    st.subheader("Explore Cryptocurrency on Coinbase")
+    if st.button("Visit Coinbase Explore"):
+        webbrowser.open_new_tab("https://www.coinbase.com/explore")
 
 if __name__ == "__main__":
     main()
