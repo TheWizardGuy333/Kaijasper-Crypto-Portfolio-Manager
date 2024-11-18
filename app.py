@@ -7,6 +7,7 @@ import streamlit as st
 from datetime import datetime
 from dotenv import load_dotenv
 import logging  # For logging errors and events
+from bs4 import BeautifulSoup  # For web scraping Yahoo Finance
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, filename="app.log", format="%(asctime)s - %(levelname)s - %(message)s")
@@ -31,42 +32,7 @@ TOKENS = {
     "Dogecoin": "dogecoin",
     "Shiba Inu": "shiba-inu",
     "Floki Inu": "floki-inu",
-    "Baby Doge": "baby-doge-coin",
-    "Kishu Inu": "kishu-inu",
-    "Saitama": "saitama",
-    "SafeMoon": "safemoon",
-    "EverGrow Coin": "evergrow-coin",
-    "Akita Inu": "akita-inu",
-    "Volt Inu": "volt-inu",
-    "CateCoin": "catecoin",
-    "Shiba Predator": "shiba-predator",
-    "DogeBonk": "dogebonk",
-    "Flokinomics": "flokinomics",
-    "StarLink": "starlink",
-    "Elon Musk Coin": "elon-musk-coin",
-    "DogeGF": "dogegf",
-    "Ryoshi Vision": "ryoshi-vision",
-    "Shibaverse": "shibaverse",
-    "FEG Token": "feg-token",
-    "Dogelon Mars": "dogelon-mars",
-    "BabyFloki": "babyfloki",
-    "PolyDoge": "polydoge",
-    "TAMA": "tamadoge",
-    "SpookyShiba": "spookyshiba",
-    "Moonriver": "moonriver",
-    "MetaHero": "metahero",
-    "BabyDogeZilla": "babydogezilla",
-    "NanoDogeCoin": "nanodogecoin",
-    "BabyShark": "babyshark",
-    "Wakanda Inu": "wakanda-inu",
-    "King Shiba": "king-shiba",
-    "PepeCoin": "pepecoin",
-    "Pitbull": "pitbull",
-    "MoonDoge": "moondoge",
-    "CryptoZilla": "cryptozilla",
-    "MiniDoge": "minidoge",
-    "ZillaDoge": "zilladoge",
-    "DogeFloki": "dogefloki",
+    # Add more tokens as needed...
     "Bonfida": "bonfida",
 }
 
@@ -110,9 +76,48 @@ def fetch_price(token_id):
         logging.warning(f"Failed to fetch price from CryptoCompare for {token_id}, trying LiveCoinWatch.")
         price = fetch_price_livecoinwatch(token_id)
     if price is None:
+        logging.warning(f"Failed to fetch price from LiveCoinWatch for {token_id}, trying Yahoo Finance.")
+        yahoo_token_name = get_yahoo_finance_token_name(token_id)
+        price = fetch_price_yahoo_finance(yahoo_token_name)
+    if price is None:
         logging.error(f"Failed to fetch price for {token_id} from all sources.")
     return price
 
+# Helper function for Yahoo Finance token name conversion
+def get_yahoo_finance_token_name(token_id):
+    # Map token names to Yahoo-compatible formats
+    token_name_mapping = {
+        "bitcoin": "BTC",
+        "dogecoin": "DOGE",
+        # Add more mappings as needed
+    }
+    return token_name_mapping.get(token_id, token_id)
+
+# Yahoo Finance price fetcher
+def fetch_price_yahoo_finance(token_name):
+    try:
+        base_url = "https://finance.yahoo.com/quote/"
+        search_url = f"{base_url}{token_name}-USD"
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+        }
+        response = requests.get(search_url, headers=headers)
+        response.raise_for_status()
+
+        soup = BeautifulSoup(response.text, "html.parser")
+        price_tag = soup.find("fin-streamer", {"data-field": "regularMarketPrice"})
+        
+        if price_tag:
+            price = float(price_tag.text.replace(",", ""))
+            return {"price": price}
+        
+        logging.warning(f"Could not find price tag on Yahoo Finance page for {token_name}.")
+        return None
+    except Exception as e:
+        logging.error(f"Error fetching price from Yahoo Finance for {token_name}: {e}")
+        return None
+
+# Existing price fetchers
 def fetch_price_coingecko(token_id):
     try:
         url = f"https://api.coingecko.com/api/v3/simple/price?ids={token_id}&vs_currencies=usd&include_market_cap=true&include_24hr_change=true&include_24hr_vol=true"
@@ -168,7 +173,7 @@ def add_token(c, conn, token, quantity, price):
     """, (token, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "Buy", quantity, price, total_value))
     conn.commit()
 
-# Updated display_portfolio function with total value and pie chart
+# Display portfolio
 def display_portfolio(c):
     st.subheader("Portfolio Overview")
     c.execute("SELECT token, quantity, value FROM portfolio")
@@ -176,18 +181,11 @@ def display_portfolio(c):
 
     if portfolio_data:
         df_portfolio = pd.DataFrame(portfolio_data, columns=["Token", "Quantity", "Value (USD)"])
-
-        # Calculate total portfolio value
         total_value = df_portfolio['Value (USD)'].sum()
         st.write(f"Total Portfolio Value: ${total_value:.2f}")
-
         st.write(df_portfolio)
-
-        # Bar chart
         fig_bar = px.bar(df_portfolio, x="Token", y="Value (USD)", title="Portfolio Value")
         st.plotly_chart(fig_bar)
-
-        # Pie chart
         fig_pie = px.pie(df_portfolio, values='Value (USD)', names='Token', title='Portfolio Composition')
         st.plotly_chart(fig_pie)
     else:
@@ -227,5 +225,4 @@ def main():
 
     conn.close()
 
-if __name__ == "__main__":
-    main()
+if __name__ == "__main
