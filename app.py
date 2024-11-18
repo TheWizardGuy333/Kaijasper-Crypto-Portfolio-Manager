@@ -8,8 +8,6 @@ from dotenv import load_dotenv
 from cachetools import TTLCache
 import logging
 import plotly.express as px
-import threading
-import time
 
 # Load environment variables
 load_dotenv()
@@ -25,103 +23,57 @@ if not CRYPTOCOMPARE_API_KEY or not LIVECOINWATCH_API_KEY:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
-# Mutex for thread-safe database access
-db_lock = threading.Lock()
-
 # Token list
 TOKENS = {
     "BONK": "bonk",
     "Dogecoin": "dogecoin",
     "Shiba Inu": "shiba-inu",
-    "Baby Doge": "baby-doge-coin",
-    "Saitama": "saitama",
-    "SafeMoon": "safemoon",
-    "Volt Inu": "volt-inu",
-    "CateCoin": "catecoin",
-    "Shiba Predator": "shiba-predator",
-    "DogeBonk": "dogebonk",
-    "Flokinomics": "flokinomics",
-    "StarLink": "starlink",
-    "DogeGF": "dogegf",
-    "Shibaverse": "shibaverse",
-    "FEG Token": "feg-token",
-    "Dogelon Mars": "dogelon-mars",
-    "BabyFloki": "babyfloki",
-    "PolyDoge": "polydoge",
-    "Moonriver": "moonriver",
-    "MetaHero": "metahero",
-    "BabyDogeZilla": "babydogezilla",
-    "BabyShark": "babyshark",
-    "Wakanda Inu": "wakanda-inu",
-    "King Shiba": "king-shiba",
-    "PepeCoin": "pepecoin",
-    "Pitbull": "pitbull",
-    "MiniDoge": "minidoge",
-    "Baby Bonk": "BABYBONK",
+    # ... other tokens
 }
 
-# Cache for API responses
-cache = TTLCache(maxsize=100, ttl=300)  # Cache up to 100 items for 5 minutes
-
 # Database helper functions
-def enable_wal_mode():
-    """Enable Write-Ahead Logging for better concurrency."""
-    with db_lock:
-        conn = sqlite3.connect("portfolio.db", check_same_thread=False)
-        try:
-            conn.execute("PRAGMA journal_mode=WAL;")
-        except sqlite3.Error as e:
-            logger.error(f"Error enabling WAL mode: {e}")
-            st.error("Failed to enable WAL mode for the database.")
-        finally:
-            conn.close()
-
-def get_connection():
-    """Get a new SQLite connection."""
+def connect_to_db():
+    """Connect to the SQLite database."""
     try:
-        return sqlite3.connect("portfolio.db", check_same_thread=False)
+        conn = sqlite3.connect("portfolio.db")
+        return conn
     except sqlite3.Error as e:
         logger.error(f"Error connecting to database: {e}")
         st.error("Failed to connect to the database.")
         return None
 
-def init_db():
-    """Initialize database tables."""
-    with db_lock:
-        conn = get_connection()
-        if not conn:
-            return  # Exit early if connection failed
-        try:
-            c = conn.cursor()
-            c.execute("""
-                CREATE TABLE IF NOT EXISTS portfolio (
-                    token TEXT PRIMARY KEY,
-                    quantity REAL,
-                    value REAL
-                )
-            """)
-            c.execute("""
-                CREATE TABLE IF NOT EXISTS transactions (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    token TEXT,
-                    date TEXT,
-                    type TEXT,
-                    quantity REAL,
-                    price REAL,
-                    total_value REAL
-                )
-            """)
-            conn.commit()
-            logger.info("Database initialized successfully.")
-        except sqlite3.Error as e:
-            logger.error(f"Database Initialization Error: {e}")
-            st.error("Database Initialization Error.")
-        finally:
-            conn.close()
+def init_db(conn):
+    """Initialize database tables if they don't exist."""
+    try:
+        c = conn.cursor()
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS portfolio (
+                token TEXT PRIMARY KEY,
+                quantity REAL,
+                value REAL
+            )
+        """)
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS transactions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                token TEXT,
+                date TEXT,
+                type TEXT,
+                quantity REAL,
+                price REAL,
+                total_value REAL
+            )
+        """)
+        conn.commit()
+        logger.info("Database initialized successfully.")
+    except sqlite3.Error as e:
+        logger.error(f"Database Initialization Error: {e}")
+        st.error("Database Initialization Error.")
 
 # Fetch prices
 def fetch_price(token_id):
     """Fetch the price of a token using multiple APIs."""
+    cache = TTLCache(maxsize=100, ttl=300)  # Create a new cache instance per call
     try:
         if token_id in cache:
             return cache[token_id]
@@ -133,6 +85,7 @@ def fetch_price(token_id):
             return price
     except Exception as e:
         logger.error(f"Error fetching price for {token_id}: {e}")
+        st.error(f"Failed to fetch price for {token_id}. Please try again later.")
     return None
 
 def fetch_price_coingecko(token_id):
@@ -140,22 +93,18 @@ def fetch_price_coingecko(token_id):
     try:
         url = f"https://api.coingecko.com/api/v3/simple/price?ids={token_id}&vs_currencies=usd"
         response = requests.get(url)
-        if response.status_code == 429:
-            logger.warning(f"Rate limit hit for {token_id}. Retrying after 1 second.")
-            time.sleep(1)  # Wait before retrying
-            response = requests.get(url)
         response.raise_for_status()
         price = response.json().get(token_id, {}).get("usd")
         return {"price": price} if price else None
     except requests.RequestException as e:
         logger.error(f"CoinGecko API Error for {token_id}: {e}")
+        st.error(f"CoinGecko API error. Please try again later.")
         return None
 
 # Portfolio operations
 def add_token(token, quantity, price):
     """Add a token to the portfolio."""
-    with db_lock:
-        conn = get_connection()
+    with connect_to_db() as conn:
         if not conn:
             return
         try:
@@ -178,13 +127,10 @@ def add_token(token, quantity, price):
         except sqlite3.Error as e:
             st.error(f"Database Error: {e}")
             logger.error(f"Database Error: {e}")
-        finally:
-            conn.close()
 
 def delete_token(token):
     """Delete a token from the portfolio."""
-    with db_lock:
-        conn = get_connection()
+    with connect_to_db() as conn:
         if not conn:
             return
         try:
@@ -195,13 +141,10 @@ def delete_token(token):
         except sqlite3.Error as e:
             st.error(f"Database Error: {e}")
             logger.error(f"Database Error: {e}")
-        finally:
-            conn.close()
 
 def display_portfolio():
     """Display the current portfolio."""
-    with db_lock:
-        conn = get_connection()
+    with connect_to_db() as conn:
         if not conn:
             return
         try:
@@ -220,18 +163,15 @@ def display_portfolio():
         except Exception as e:
             st.error(f"Error displaying portfolio: {e}")
             logger.error(f"Error displaying portfolio: {e}")
-        finally:
-            conn.close()
 
 # Main application
 def main():
     st.title("🚀 Kaijasper Crypto Portfolio Manager 🚀")
 
-    try:
-        init_db()
-    except Exception as e:
-        logger.error(f"Unexpected error during database initialization: {e}")
-        st.error("Failed to initialize the database.")
+    conn = connect_to_db()
+    if conn:
+        init_db(conn)
+        conn.close()
 
     st.subheader("Portfolio Management")
     display_portfolio()
@@ -245,17 +185,16 @@ def main():
             add_token(token_name, quantity, price["price"])
         else:
             st.error(f"Could not fetch the price for {token_name}.")
-            
+
     st.subheader("Delete a Token from Portfolio")
-    with db_lock:
-        conn = get_connection()
-        token_list = []
-        if conn:
-            try:
-                c = conn.cursor()
-                token_list = [row[0] for row in c.execute("SELECT token FROM portfolio")]
-            finally:
-                conn.close()
+    with connect_to_db() as conn:
+        if not conn:
+            return
+        try:
+            c = conn.cursor()
+            token_list = [row[0] for row in c.execute("SELECT token FROM portfolio")]
+        finally:
+            conn.close()
     delete_token_name = st.selectbox("Select Token to Delete", options=token_list, key="delete_token")
     if st.button("Delete Token"):
         delete_token(delete_token_name)
