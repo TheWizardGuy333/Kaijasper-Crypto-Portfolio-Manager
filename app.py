@@ -32,7 +32,6 @@ TOKENS = {
     "Dogecoin": "dogecoin",
     "Shiba Inu": "shiba-inu",
     "Floki Inu": "floki-inu",
-    # Add more tokens as needed...
     "Bonfida": "bonfida",
 }
 
@@ -58,11 +57,6 @@ def init_db():
             total_value REAL
         )
     """)
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS watchlist (
-            token TEXT PRIMARY KEY
-        )
-    """)
     conn.commit()
     return conn, c
 
@@ -83,13 +77,11 @@ def fetch_price(token_id):
         logging.error(f"Failed to fetch price for {token_id} from all sources.")
     return price
 
-# Helper function for Yahoo Finance token name conversion
+# Yahoo Finance token name mapping
 def get_yahoo_finance_token_name(token_id):
-    # Map token names to Yahoo-compatible formats
     token_name_mapping = {
         "bitcoin": "BTC",
         "dogecoin": "DOGE",
-        # Add more mappings as needed
     }
     return token_name_mapping.get(token_id, token_id)
 
@@ -99,41 +91,36 @@ def fetch_price_yahoo_finance(token_name):
         base_url = "https://finance.yahoo.com/quote/"
         search_url = f"{base_url}{token_name}-USD"
         headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+            "User-Agent": "Mozilla/5.0"
         }
         response = requests.get(search_url, headers=headers)
         response.raise_for_status()
 
         soup = BeautifulSoup(response.text, "html.parser")
         price_tag = soup.find("fin-streamer", {"data-field": "regularMarketPrice"})
-        
+
         if price_tag:
             price = float(price_tag.text.replace(",", ""))
             return {"price": price}
-        
         logging.warning(f"Could not find price tag on Yahoo Finance page for {token_name}.")
         return None
     except Exception as e:
         logging.error(f"Error fetching price from Yahoo Finance for {token_name}: {e}")
         return None
 
-# Existing price fetchers
+# Fetch price from CoinGecko
 def fetch_price_coingecko(token_id):
     try:
-        url = f"https://api.coingecko.com/api/v3/simple/price?ids={token_id}&vs_currencies=usd&include_market_cap=true&include_24hr_change=true&include_24hr_vol=true"
+        url = f"https://api.coingecko.com/api/v3/simple/price?ids={token_id}&vs_currencies=usd"
         response = requests.get(url)
         response.raise_for_status()
         data = response.json().get(token_id, {})
-        return {
-            "price": data.get("usd"),
-            "market_cap": data.get("usd_market_cap"),
-            "volume": data.get("usd_24h_vol"),
-            "change_24h": data.get("usd_24h_change", 0)
-        }
+        return {"price": data.get("usd")}
     except requests.RequestException as e:
         logging.error(f"Error fetching price from CoinGecko for {token_id}: {e}")
         return None
 
+# Fetch price from CryptoCompare
 def fetch_price_cryptocompare(token_id):
     try:
         url = f"https://min-api.cryptocompare.com/data/price?fsym={token_id.upper()}&tsyms=USD"
@@ -145,6 +132,7 @@ def fetch_price_cryptocompare(token_id):
         logging.error(f"Error fetching price from CryptoCompare for {token_id}: {e}")
         return None
 
+# Fetch price from LiveCoinWatch
 def fetch_price_livecoinwatch(token_id):
     try:
         url = "https://api.livecoinwatch.com/coins/single"
@@ -152,21 +140,15 @@ def fetch_price_livecoinwatch(token_id):
         payload = {"code": token_id.upper(), "currency": "USD", "meta": True}
         response = requests.post(url, json=payload, headers=headers)
         response.raise_for_status()
-        data = response.json()
-        return {"price": data.get("rate")}
+        return {"price": response.json().get("rate")}
     except requests.RequestException as e:
         logging.error(f"Error fetching price from LiveCoinWatch for {token_id}: {e}")
         return None
 
-# Add token to portfolio with validation
+# Add token to portfolio
 def add_token(c, conn, token, quantity, price):
-    if quantity <= 0:
-        st.error("Quantity must be greater than 0.")
-        logging.warning("Attempted to add token with non-positive quantity.")
-        return
     total_value = quantity * price
-    c.execute("INSERT OR REPLACE INTO portfolio (token, quantity, value) VALUES (?, ?, ?)",
-              (token, quantity, total_value))
+    c.execute("INSERT OR REPLACE INTO portfolio (token, quantity, value) VALUES (?, ?, ?)", (token, quantity, total_value))
     c.execute("""
         INSERT INTO transactions (token, date, type, quantity, price, total_value)
         VALUES (?, ?, ?, ?, ?, ?)
@@ -193,7 +175,7 @@ def display_portfolio(c):
 
 # Main app layout
 def main():
-    st.title("Kaijasper Crypto Portfolio Manager")
+    st.title("Crypto Portfolio Manager")
     conn, c = init_db()
 
     menu = ["Home", "Manage Portfolio", "View Portfolio"]
@@ -202,8 +184,30 @@ def main():
     if choice == "Home":
         st.subheader("Welcome!")
         st.write("Manage your crypto portfolio with real-time updates.")
+        st.subheader("Visit These Websites")
+
+        # Buttons for cryptocurrency-related websites
+        if st.button("Coinbase"):
+            st.write("Redirecting to Coinbase...")
+            st.markdown("[Visit Coinbase](https://www.coinbase.com)", unsafe_allow_html=True)
+        if st.button("LiveCoinWatch"):
+            st.write("Redirecting to LiveCoinWatch...")
+            st.markdown("[Visit LiveCoinWatch](https://www.livecoinwatch.com)", unsafe_allow_html=True)
+        if st.button("CoinMarketCap"):
+            st.write("Redirecting to CoinMarketCap...")
+            st.markdown("[Visit CoinMarketCap](https://coinmarketcap.com)", unsafe_allow_html=True)
+        if st.button("CoinGecko"):
+            st.write("Redirecting to CoinGecko...")
+            st.markdown("[Visit CoinGecko](https://www.coingecko.com)", unsafe_allow_html=True)
+        if st.button("CryptoCompare"):
+            st.write("Redirecting to CryptoCompare...")
+            st.markdown("[Visit CryptoCompare](https://www.cryptocompare.com)", unsafe_allow_html=True)
+        if st.button("Yahoo Finance"):
+            st.write("Redirecting to Yahoo Finance...")
+            st.markdown("[Visit Yahoo Finance](https://finance.yahoo.com)", unsafe_allow_html=True)
 
     elif choice == "Manage Portfolio":
+        st.subheader("Manage Your Portfolio")
         token_name = st.selectbox("Select Token to Add", options=list(TOKENS.keys()))
         quantity = st.number_input("Enter Quantity to Add", min_value=0.0, format="%.4f")
         if st.button("Add to Portfolio"):
@@ -223,6 +227,7 @@ def main():
     elif choice == "View Portfolio":
         display_portfolio(c)
 
+    # Close database connection
     conn.close()
 
 if __name__ == "__main__":
