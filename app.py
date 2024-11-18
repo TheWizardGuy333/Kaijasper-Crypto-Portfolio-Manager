@@ -15,6 +15,7 @@ load_dotenv()
 # API Keys from .env
 CRYPTOCOMPARE_API_KEY = os.getenv("CRYPTOCOMPARE_API_KEY")
 LIVECOINWATCH_API_KEY = os.getenv("LIVECOINWATCH_API_KEY")
+COINGECKO_API_KEY = os.getenv("COINGECKO_API_KEY")  # Add CoinGecko API key
 
 if not CRYPTOCOMPARE_API_KEY or not LIVECOINWATCH_API_KEY:
     raise ValueError("API keys are missing. Check your .env file!")
@@ -25,9 +26,8 @@ logger = logging.getLogger(__name__)
 
 # Token list
 TOKENS = {
-   
-"BONK": "BONK",
-    "Dogecoin": "dogecoin",  # Removed the invisible space
+    "BONK": "BONK",
+    "Dogecoin": "dogecoin",
     "Shiba Inu": "shiba-inu",
     "Baby Doge": "baby-doge-coin",
     "Saitama": "saitama",
@@ -54,7 +54,6 @@ TOKENS = {
     "Pitbull": "pitbull",
     "MiniDoge": "minidoge",
     "Baby Bonk": "BABY BONK",
-    
 }
 
 
@@ -120,7 +119,10 @@ def fetch_price_coingecko(token_id):
     """Fetch price from CoinGecko with basic rate-limiting."""
     try:
         url = f"https://api.coingecko.com/api/v3/simple/price?ids={token_id}&vs_currencies=usd"
-        response = requests.get(url)
+        headers = {
+            "Authorization": f"Bearer {COINGECKO_API_KEY}"  # Pass API key in the header if needed
+        }
+        response = requests.get(url, headers=headers)
         response.raise_for_status()
         price = response.json().get(token_id, {}).get("usd")
         return {"price": price} if price else None
