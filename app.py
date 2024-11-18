@@ -25,10 +25,62 @@ logger = logging.getLogger(__name__)
 
 # Token list
 TOKENS = {
-    "BONK": "bonk",
-    "Dogecoin": "dogecoin",
-    "Shiba Inu": "shiba-inu",
-    # ... other tokens
+    "BONK": "BONK",
+
+    "Dogecoin": "dogecoin",
+
+    "Shiba Inu": "shiba-inu",
+
+    "Baby Doge": "baby-doge-coin",
+
+    "Saitama": "saitama",
+
+    "SafeMoon": "safemoon",
+
+    "Volt Inu": "volt-inu",
+
+    "CateCoin": "catecoin",
+
+    "Shiba Predator": "shiba-predator",
+
+    "DogeBonk": "dogebonk",
+
+    "Flokinomics": "flokinomics",
+
+    "StarLink": "starlink",
+
+    "DogeGF": "dogegf",
+
+    "Shibaverse": "shibaverse",
+
+    "FEG Token": "feg-token",
+
+    "Dogelon Mars": "dogelon-mars",
+
+    "BabyFloki": "babyfloki",
+
+    "PolyDoge": "polydoge",
+
+    "Moonriver": "moonriver",
+
+    "MetaHero": "metahero",
+
+    "BabyDogeZilla": "babydogezilla",
+
+    "BabyShark": "babyshark",
+
+    "Wakanda Inu": "wakanda-inu",
+
+    "King Shiba": "king-shiba",
+
+    "PepeCoin": "pepecoin",
+
+    "Pitbull": "pitbull",
+
+    "MiniDoge": "minidoge",
+
+    "Baby Bonk": "BABY BONK",
+
 }
 
 
