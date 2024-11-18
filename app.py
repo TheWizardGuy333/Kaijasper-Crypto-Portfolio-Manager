@@ -185,8 +185,7 @@ def main():
         st.subheader("Welcome!")
         st.write("Manage your crypto portfolio with real-time updates.")
         st.subheader("Visit These Websites")
-
-        # Buttons for cryptocurrency-related websites
+# Buttons for cryptocurrency-related websites
         if st.button("Coinbase"):
             st.write("Redirecting to Coinbase...")
             st.markdown("[Visit Coinbase](https://www.coinbase.com)", unsafe_allow_html=True)
