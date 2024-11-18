@@ -95,8 +95,48 @@ def fetch_price_coingecko(token_id):
     try:
         url = f"https://api.coingecko.com/api/v3/simple/price?ids={token_id}&vs_currencies=usd"
         response = requests.get(url)
-        response.raise_
-        # ... (rest of the code)
+        response.raise_for_status()
+        price = response.json().get(token_id, {}).get("usd")
+        return {"price": price} if price else None
+    except requests.RequestException as e:
+        logger.error(f"CoinGecko API Error for {token_id}: {e}")
+        st.error(f"CoinGecko API error. Please try again later.")
+        return None
+
+# Portfolio operations
+def add_token(conn, token, quantity, price):
+    """Add a token to the portfolio."""
+    try:
+        c = conn.cursor()
+        c.execute("SELECT quantity FROM portfolio WHERE token = ?", (token,))
+        existing = c.fetchone()
+        if existing:
+            new_quantity = existing[0] + quantity
+            new_value = new_quantity * price
+            c.execute("UPDATE portfolio SET quantity = ?, value = ? WHERE token = ?", (new_quantity, new_value, token))
+        else:
+            total_value = quantity * price
+            c.execute("INSERT INTO portfolio (token, quantity, value) VALUES (?, ?, ?)", (token, quantity, total_value))
+        c.execute("""
+            INSERT INTO transactions (token, date, type, quantity, price, total_value)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (token, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "Buy", quantity, price, total_value))
+        conn.commit()
+        st.success(f"Added {quantity} of {token} to portfolio at ${price:.6f} each.")
+    except sqlite3.Error as e:
+        st.error(f"Database Error: {e}")
+        logger.error(f"Database Error: {e}")
+
+def delete_token(conn, token):
+    """Delete a token from the portfolio."""
+    try:
+        c = conn.cursor()
+        c.execute("DELETE FROM portfolio WHERE token = ?", (token,))
+        conn.commit()
+        st.success(f"{token} has been removed from your portfolio.")
+    except sqlite3.Error as e:
+        st.error(f"Database Error: {e}")
+        logger.error(f"Database Error: {e}")
 
 def display_portfolio(conn):
     """Display the current portfolio."""
@@ -130,7 +170,26 @@ def main():
     st.subheader("Portfolio Management")
     display_portfolio(conn)
 
-    # ... (rest of the main function)
+    st.subheader("Add a Token to Portfolio")
+    token_name = st.selectbox("Select Token", options=list(TOKENS.keys()), key="add_token_portfolio")
+    quantity = st.number_input("Enter Quantity", min_value=0.0, step=0.01, key="token_quantity")
+    if st.button("Add Token"):
+        price = fetch_price(TOKENS[token_name])
+        if price:
+            add_token(conn, token_name, quantity, price["price"])
+        else:
+            st.error(f"Could not fetch the price for {token_name}.")
+
+    st.subheader("Delete a Token from Portfolio")
+    with conn:
+        c = conn.cursor()
+        token_list = [row[0] for row in c.execute("SELECT token FROM portfolio")]
+    delete_token_name = st.selectbox("Select Token to Delete", options=token_list, key="delete_token")
+    if st.button("Delete Token"):
+        delete_token(conn, delete_token_name)
+
+    st.subheader("Explore Cryptocurrency on Coinbase")
+    st.markdown("[Visit Coinbase Explore](https://www.coinbase.com/explore)", unsafe_allow_html=True)
 
     conn.close()  # Close the connection at the end of the app
 
