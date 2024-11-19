@@ -27,7 +27,7 @@ if not CRYPTOCOMPARE_API_KEY or not LIVECOINWATCH_API_KEY or not COINGECKO_API_K
     exit()
 
 # Token List
-    TOKENS = {
+TOKENS = {
     "BONK": "bonk",
     "Dogecoin": "dogecoin",
     "Shiba Inu": "shiba-inu",
