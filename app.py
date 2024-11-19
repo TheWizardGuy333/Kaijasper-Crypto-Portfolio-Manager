@@ -26,12 +26,50 @@ if not CRYPTOCOMPARE_API_KEY or not LIVECOINWATCH_API_KEY or not COINGECKO_API_K
     logging.error("API keys are missing! Check the .env file.")
     exit()
 
-# Token List (Including Bonfida)
-TOKENS = {
+# Token List
+    "TOKENS = {
     "BONK": "bonk",
     "Dogecoin": "dogecoin",
     "Shiba Inu": "shiba-inu",
     "Floki Inu": "floki-inu",
+    "Bitcoin": "bitcoin",
+    "Ethereum": "ethereum",
+    "Solana": "solana",
+    "Cardano": "cardano",
+    "Ripple": "ripple",
+    "Polkadot": "polkadot",
+    "Binance Coin": "binancecoin",
+    "Avalanche": "avalanche",
+    "Litecoin": "litecoin",
+    "Polygon": "polygon",
+    "Amp": "amp",
+    "Holo": "holo",
+    "Celer Network": "celer-network",
+    "JasmyCoin": "jasmycoin",
+    "Ankr": "ankr",
+    "Fetch.ai": "fetch-ai",
+    "IoTeX": "iotex",
+    "Request": "request",
+    "ConstitutionDAO": "constitutiondao",
+    "Origin Protocol": "origin-protocol",
+    "Civic": "civic",
+    "Verasity": "verasity",
+    "StormX": "stormx",
+    "Saitama Inu": "saitama",
+    "SafeMoon Inu": "safemoon",
+    "Kishu Inu": "kishu-inu",
+    "Akita Inu": "akita-inu",
+    "Pitbull": "pitbull",
+    "Baby Doge Coin": "baby-doge-coin",
+    "Hoge Finance": "hoge-finance",
+    "EverGrow Coin": "evergrow-coin",
+    "Bonfire": "bonfire",
+    "ElonDoge Token": "elondoge-token",
+    "ShibaPup": "shibapup",
+    "CateCoin": "catecoin",
+    "BitTorrent": "bittorrent",
+    "VeChain": "vechain",
+    "Stellar": "stellar",
     "Bonfida": "bonfida",
 }
 
