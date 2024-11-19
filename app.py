@@ -175,7 +175,7 @@ def display_portfolio(c):
 
 # Main app layout
 def main():
-    st.title("Crypto Portfolio Manager")
+    st.title("🚀Kaijasper Crypto Portfolio Manager🚀")
     conn, c = init_db()
 
     menu = ["Home", "Manage Portfolio", "View Portfolio"]
