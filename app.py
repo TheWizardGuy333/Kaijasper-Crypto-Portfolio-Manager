@@ -27,7 +27,7 @@ if not CRYPTOCOMPARE_API_KEY or not LIVECOINWATCH_API_KEY or not COINGECKO_API_K
     exit()
 
 # Token List
-TOKENS = {
+TOKENS = {# Token List
     "BONK": "bonk",
     "Dogecoin": "dogecoin",
     "Shiba Inu": "shiba-inu",
@@ -71,6 +71,25 @@ TOKENS = {
     "VeChain": "vechain",
     "Stellar": "stellar",
     "Bonfida": "bonfida",
+    # Added tokens available on Coinbase
+    "Polygon (MATIC)": "matic-network",
+    "Immutable X (IMX)": "immutable-x",
+    "Arbitrum (ARB)": "arbitrum",
+    "Optimism (OP)": "optimism",
+    "Fetch.ai (FET)": "fetch-ai",
+    "SingularityNET (AGIX)": "singularitynet",
+    "Ocean Protocol (OCEAN)": "ocean-protocol",
+    "Aave (AAVE)": "aave",
+    "Curve Finance (CRV)": "curve-dao-token",
+    "Render Token (RNDR)": "render-token",
+    "Theta Network (THETA)": "theta-token",
+    "Flow (FLOW)": "flow",
+    "Basic Attention Token (BAT)": "basic-attention-token",
+    "Gala Games (GALA)": "gala",
+    "The Sandbox (SAND)": "the-sandbox",
+    "Enjin Coin (ENJ)": "enjincoin",
+    "Hedera (HBAR)": "hedera-hashgraph",
+    "Quant (QNT)": "quant-network",
 }
 
 # Initialize SQLite database
