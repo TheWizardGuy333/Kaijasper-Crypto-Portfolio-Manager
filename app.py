@@ -24,10 +24,10 @@ COINGECKO_API_KEY = os.getenv("COINGECKO_API_KEY")
 if not CRYPTOCOMPARE_API_KEY or not LIVECOINWATCH_API_KEY or not COINGECKO_API_KEY:
     st.error("API keys are missing! Check the .env file.")
     logging.error("API keys are missing! Check the .env file.")
-    exit()
+    st.stop()  # Halt execution instead of exiting the Streamlit app
 
 # Token List
-TOKENS = {# Token List
+TOKENS = {
     "BONK": "bonk",
     "Dogecoin": "dogecoin",
     "Shiba Inu": "shiba-inu",
@@ -92,6 +92,20 @@ TOKENS = {# Token List
     "Quant (QNT)": "quant-network",
 }
 
+# Yahoo Finance token name mapping
+def get_yahoo_finance_token_name(token_id):
+    token_name_mapping = {
+        "bitcoin": "BTC",
+        "dogecoin": "DOGE",
+        "polygon": "MATIC",
+        "arbitrum": "ARB",
+        "optimism": "OP",
+        "fetch-ai": "FET",
+        "hedera-hashgraph": "HBAR",
+        "quant-network": "QNT",
+    }
+    return token_name_mapping.get(token_id, token_id)
+
 # Initialize SQLite database
 def init_db():
     conn = sqlite3.connect("portfolio.db")
@@ -110,10 +124,10 @@ def init_db():
             date TEXT,
             type TEXT,
             quantity REAL,
-            price REAL,
-            total_value REAL
+            price NUMERIC,
+            total_value NUMERIC
         )
-    """)
+    """)  # Changed price and total_value to NUMERIC for better precision
     conn.commit()
     return conn, c
 
@@ -134,22 +148,31 @@ def fetch_price(token_id):
         logging.error(f"Failed to fetch price for {token_id} from all sources.")
     return price
 
-# Yahoo Finance token name mapping
-def get_yahoo_finance_token_name(token_id):
-    token_name_mapping = {
-        "bitcoin": "BTC",
-        "dogecoin": "DOGE",
-    }
-    return token_name_mapping.get(token_id, token_id)
+# Ensure quantity is greater than 0
+def validate_quantity(quantity):
+    if quantity <= 0:
+        st.warning("Quantity must be greater than 0.")
+        return False
+    return True
 
-# Yahoo Finance price fetcher
+# Fetch price from CoinGecko
+def fetch_price_coingecko(token_id):
+    try:
+        url = f"https://api.coingecko.com/api/v3/simple/price?ids={token_id}&vs_currencies=usd"
+        response = requests.get(url)
+        response.raise_for_status()
+        data = response.json().get(token_id, {})
+        return {"price": data.get("usd")}
+    except requests.RequestException as e:
+        logging.error(f"Error fetching price from CoinGecko for {token_id}: {e}")
+        return None
+
+# Fetch price from Yahoo Finance
 def fetch_price_yahoo_finance(token_name):
     try:
         base_url = "https://finance.yahoo.com/quote/"
         search_url = f"{base_url}{token_name}-USD"
-        headers = {
-            "User-Agent": "Mozilla/5.0"
-        }
+        headers = {"User-Agent": "Mozilla/5.0"}
         response = requests.get(search_url, headers=headers)
         response.raise_for_status()
 
@@ -165,71 +188,6 @@ def fetch_price_yahoo_finance(token_name):
         logging.error(f"Error fetching price from Yahoo Finance for {token_name}: {e}")
         return None
 
-# Fetch price from CoinGecko
-def fetch_price_coingecko(token_id):
-    try:
-        url = f"https://api.coingecko.com/api/v3/simple/price?ids={token_id}&vs_currencies=usd"
-        response = requests.get(url)
-        response.raise_for_status()
-        data = response.json().get(token_id, {})
-        return {"price": data.get("usd")}
-    except requests.RequestException as e:
-        logging.error(f"Error fetching price from CoinGecko for {token_id}: {e}")
-        return None
-
-# Fetch price from CryptoCompare
-def fetch_price_cryptocompare(token_id):
-    try:
-        url = f"https://min-api.cryptocompare.com/data/price?fsym={token_id.upper()}&tsyms=USD"
-        headers = {"authorization": f"Apikey {CRYPTOCOMPARE_API_KEY}"}
-        response = requests.get(url, headers=headers)
-        response.raise_for_status()
-        return {"price": response.json().get("USD")}
-    except requests.RequestException as e:
-        logging.error(f"Error fetching price from CryptoCompare for {token_id}: {e}")
-        return None
-
-# Fetch price from LiveCoinWatch
-def fetch_price_livecoinwatch(token_id):
-    try:
-        url = "https://api.livecoinwatch.com/coins/single"
-        headers = {"x-api-key": LIVECOINWATCH_API_KEY}
-        payload = {"code": token_id.upper(), "currency": "USD", "meta": True}
-        response = requests.post(url, json=payload, headers=headers)
-        response.raise_for_status()
-        return {"price": response.json().get("rate")}
-    except requests.RequestException as e:
-        logging.error(f"Error fetching price from LiveCoinWatch for {token_id}: {e}")
-        return None
-
-# Add token to portfolio
-def add_token(c, conn, token, quantity, price):
-    total_value = quantity * price
-    c.execute("INSERT OR REPLACE INTO portfolio (token, quantity, value) VALUES (?, ?, ?)", (token, quantity, total_value))
-    c.execute("""
-        INSERT INTO transactions (token, date, type, quantity, price, total_value)
-        VALUES (?, ?, ?, ?, ?, ?)
-    """, (token, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "Buy", quantity, price, total_value))
-    conn.commit()
-
-# Display portfolio
-def display_portfolio(c):
-    st.subheader("Portfolio Overview")
-    c.execute("SELECT token, quantity, value FROM portfolio")
-    portfolio_data = c.fetchall()
-
-    if portfolio_data:
-        df_portfolio = pd.DataFrame(portfolio_data, columns=["Token", "Quantity", "Value (USD)"])
-        total_value = df_portfolio['Value (USD)'].sum()
-        st.write(f"Total Portfolio Value: ${total_value:.2f}")
-        st.write(df_portfolio)
-        fig_bar = px.bar(df_portfolio, x="Token", y="Value (USD)", title="Portfolio Value")
-        st.plotly_chart(fig_bar)
-        fig_pie = px.pie(df_portfolio, values='Value (USD)', names='Token', title='Portfolio Composition')
-        st.plotly_chart(fig_pie)
-    else:
-        st.write("Your portfolio is empty.")
-
 # Main app layout
 def main():
     st.title("🚀Kaijasper Crypto Portfolio Manager🚀")
@@ -238,53 +196,21 @@ def main():
     menu = ["Home", "Manage Portfolio", "View Portfolio"]
     choice = st.sidebar.selectbox("Select an option", menu)
 
-    if choice == "Home":
-        st.subheader("Welcome!")
-        st.write("Manage your crypto portfolio with real-time updates.")
-        st.subheader("Visit These Websites")
-# Buttons for cryptocurrency-related websites
-        if st.button("Coinbase"):
-            st.write("Redirecting to Coinbase...")
-            st.markdown("[Visit Coinbase](https://www.coinbase.com)", unsafe_allow_html=True)
-        if st.button("LiveCoinWatch"):
-            st.write("Redirecting to LiveCoinWatch...")
-            st.markdown("[Visit LiveCoinWatch](https://www.livecoinwatch.com)", unsafe_allow_html=True)
-        if st.button("CoinMarketCap"):
-            st.write("Redirecting to CoinMarketCap...")
-            st.markdown("[Visit CoinMarketCap](https://coinmarketcap.com)", unsafe_allow_html=True)
-        if st.button("CoinGecko"):
-            st.write("Redirecting to CoinGecko...")
-            st.markdown("[Visit CoinGecko](https://www.coingecko.com)", unsafe_allow_html=True)
-        if st.button("CryptoCompare"):
-            st.write("Redirecting to CryptoCompare...")
-            st.markdown("[Visit CryptoCompare](https://www.cryptocompare.com)", unsafe_allow_html=True)
-        if st.button("Yahoo Finance"):
-            st.write("Redirecting to Yahoo Finance...")
-            st.markdown("[Visit Yahoo Finance](https://finance.yahoo.com)", unsafe_allow_html=True)
-
-    elif choice == "Manage Portfolio":
+    if choice == "Manage Portfolio":
         st.subheader("Manage Your Portfolio")
         token_name = st.selectbox("Select Token to Add", options=list(TOKENS.keys()))
         quantity = st.number_input("Enter Quantity to Add", min_value=0.0, format="%.4f")
         if st.button("Add to Portfolio"):
-            token_id = TOKENS.get(token_name)
-            if not token_id:
-                st.error(f"Token {token_name} not supported.")
-                return
-            price_info = fetch_price(token_id)
-            if price_info and "price" in price_info:
-                price = price_info["price"]
-                add_token(c, conn, token_name, quantity, price)
-                st.success(f"Added {quantity} {token_name} at ${price:.2f}")
-                display_portfolio(c)
-            else:
-                st.error(f"Could not fetch price for {token_name}")
-
-    elif choice == "View Portfolio":
-        display_portfolio(c)
-
-    # Close database connection
-    conn.close()
+            if validate_quantity(quantity):
+                token_id = TOKENS.get(token_name)
+                price_info = fetch_price(token_id)
+                if price_info and "price" in price_info:
+                    price = price_info["price"]
+                    add_token(c, conn, token_name, quantity, price)
+                    st.success(f"Added {quantity} {token_name} at ${price:.2f}")
+                    display_portfolio(c)
+                else:
+                    st.error(f"Could not fetch price for {token_name}")
 
 if __name__ == "__main__":
     main()
