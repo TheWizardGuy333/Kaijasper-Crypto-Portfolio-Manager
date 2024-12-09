@@ -26,7 +26,7 @@ if not CRYPTOCOMPARE_API_KEY or not LIVECOINWATCH_API_KEY or not COINGECKO_API_K
     logging.error("API keys are missing! Check the .env file.")
     st.stop()  # Halt execution instead of exiting the Streamlit app
 
-# Token List
+# Token List with CoinGecko IDs
 TOKENS = {
     "BONK": "bonk",
     "Dogecoin": "dogecoin",
@@ -41,7 +41,7 @@ TOKENS = {
     "Binance Coin": "binancecoin",
     "Avalanche": "avalanche",
     "Litecoin": "litecoin",
-    "Polygon": "polygon",
+    "Polygon (MATIC)": "matic-network",
     "Amp": "amp",
     "Holo": "holo",
     "Celer Network": "celer-network",
@@ -71,12 +71,9 @@ TOKENS = {
     "VeChain": "vechain",
     "Stellar": "stellar",
     "Bonfida": "bonfida",
-    # Added tokens available on Coinbase
-    "Polygon (MATIC)": "matic-network",
     "Immutable X (IMX)": "immutable-x",
     "Arbitrum (ARB)": "arbitrum",
     "Optimism (OP)": "optimism",
-    "Fetch.ai (FET)": "fetch-ai",
     "SingularityNET (AGIX)": "singularitynet",
     "Ocean Protocol (OCEAN)": "ocean-protocol",
     "Aave (AAVE)": "aave",
@@ -97,12 +94,16 @@ def get_yahoo_finance_token_name(token_id):
     token_name_mapping = {
         "bitcoin": "BTC",
         "dogecoin": "DOGE",
-        "polygon": "MATIC",
+        "shiba-inu": "SHIB",
+        "floki-inu": "FLOKI",
+        "matic-network": "MATIC",
         "arbitrum": "ARB",
         "optimism": "OP",
-        "fetch-ai": "FET",
         "hedera-hashgraph": "HBAR",
         "quant-network": "QNT",
+        "theta-token": "THETA",
+        "basic-attention-token": "BAT",
+        # Add additional mappings if necessary
     }
     return token_name_mapping.get(token_id, token_id)
 
@@ -127,9 +128,37 @@ def init_db():
             price NUMERIC,
             total_value NUMERIC
         )
-    """)  # Changed price and total_value to NUMERIC for better precision
+    """)
     conn.commit()
     return conn, c
+
+# Add token to portfolio
+def add_token(c, conn, token, quantity, price):
+    total_value = quantity * price
+    c.execute("INSERT OR REPLACE INTO portfolio (token, quantity, value) VALUES (?, ?, ?)", (token, quantity, total_value))
+    c.execute("""
+        INSERT INTO transactions (token, date, type, quantity, price, total_value)
+        VALUES (?, ?, ?, ?, ?, ?)
+    """, (token, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "Buy", quantity, price, total_value))
+    conn.commit()
+
+# Display portfolio
+def display_portfolio(c):
+    st.subheader("Portfolio Overview")
+    c.execute("SELECT token, quantity, value FROM portfolio")
+    portfolio_data = c.fetchall()
+
+    if portfolio_data:
+        df_portfolio = pd.DataFrame(portfolio_data, columns=["Token", "Quantity", "Value (USD)"])
+        total_value = df_portfolio['Value (USD)'].sum()
+        st.write(f"Total Portfolio Value: ${total_value:.2f}")
+        st.write(df_portfolio)
+        fig_bar = px.bar(df_portfolio, x="Token", y="Value (USD)", title="Portfolio Value")
+        st.plotly_chart(fig_bar)
+        fig_pie = px.pie(df_portfolio, values='Value (USD)', names='Token', title='Portfolio Composition')
+        st.plotly_chart(fig_pie)
+    else:
+        st.write("Your portfolio is empty.")
 
 # Fetch price with fallback mechanism
 def fetch_price(token_id):
@@ -148,46 +177,6 @@ def fetch_price(token_id):
         logging.error(f"Failed to fetch price for {token_id} from all sources.")
     return price
 
-# Ensure quantity is greater than 0
-def validate_quantity(quantity):
-    if quantity <= 0:
-        st.warning("Quantity must be greater than 0.")
-        return False
-    return True
-
-# Fetch price from CoinGecko
-def fetch_price_coingecko(token_id):
-    try:
-        url = f"https://api.coingecko.com/api/v3/simple/price?ids={token_id}&vs_currencies=usd"
-        response = requests.get(url)
-        response.raise_for_status()
-        data = response.json().get(token_id, {})
-        return {"price": data.get("usd")}
-    except requests.RequestException as e:
-        logging.error(f"Error fetching price from CoinGecko for {token_id}: {e}")
-        return None
-
-# Fetch price from Yahoo Finance
-def fetch_price_yahoo_finance(token_name):
-    try:
-        base_url = "https://finance.yahoo.com/quote/"
-        search_url = f"{base_url}{token_name}-USD"
-        headers = {"User-Agent": "Mozilla/5.0"}
-        response = requests.get(search_url, headers=headers)
-        response.raise_for_status()
-
-        soup = BeautifulSoup(response.text, "html.parser")
-        price_tag = soup.find("fin-streamer", {"data-field": "regularMarketPrice"})
-
-        if price_tag:
-            price = float(price_tag.text.replace(",", ""))
-            return {"price": price}
-        logging.warning(f"Could not find price tag on Yahoo Finance page for {token_name}.")
-        return None
-    except Exception as e:
-        logging.error(f"Error fetching price from Yahoo Finance for {token_name}: {e}")
-        return None
-
 # Main app layout
 def main():
     st.title("🚀Kaijasper Crypto Portfolio Manager🚀")
@@ -201,7 +190,7 @@ def main():
         token_name = st.selectbox("Select Token to Add", options=list(TOKENS.keys()))
         quantity = st.number_input("Enter Quantity to Add", min_value=0.0, format="%.4f")
         if st.button("Add to Portfolio"):
-            if validate_quantity(quantity):
+            if quantity > 0:
                 token_id = TOKENS.get(token_name)
                 price_info = fetch_price(token_id)
                 if price_info and "price" in price_info:
@@ -211,6 +200,11 @@ def main():
                     display_portfolio(c)
                 else:
                     st.error(f"Could not fetch price for {token_name}")
+            else:
+                st.warning("Quantity must be greater than 0.")
+
+    elif choice == "View Portfolio":
+        display_portfolio(c)
 
 if __name__ == "__main__":
     main()
